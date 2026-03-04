@@ -102,6 +102,50 @@ public sealed class ProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task FeedProcessor_ProcessAsync_DoNotMatchKeywordsOnlyInUrl()
+    {
+        // URL にだけ含まれるキーワードでは検出しないことを確認する。
+        var handler = new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <rss version="2.0">
+                      <channel>
+                        <item>
+                          <title>お知らせ</title>
+                          <link>https://example.com/意見募集/条例</link>
+                        </item>
+                      </channel>
+                    </rss>
+                    """, Encoding.UTF8, "application/xml")
+            });
+
+        using var httpClient = new HttpClient(handler);
+        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            stateStore,
+            new MessageBuilder(),
+            new DiscordNotifier(new DiscordHttpClient(discordClient)),
+            [new RssFeedSource(), new HtmlFeedSource()]);
+
+        var result = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            dryRun: true,
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, result.NewItemCount);
+
+        var state = await stateStore.LoadAsync("feed-test", CancellationToken.None);
+        Assert.NotNull(state);
+        Assert.Empty(state!.Seen);
+    }
+
+    [Fact]
     public async Task PageProcessor_ProcessAsync_DetectContentChange()
     {
         // 本文が変わった場合に changed=true で state が更新されることを確認する。

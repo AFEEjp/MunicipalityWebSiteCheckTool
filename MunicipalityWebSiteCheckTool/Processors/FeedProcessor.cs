@@ -206,19 +206,22 @@ public sealed class FeedProcessor
     private static bool IsMatchTarget(FeedItem item, MatchConfig match)
     {
         var text = BuildMatchText(item);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // タイトルが無い項目は、キーワード判定の対象にしない。
+            return false;
+        }
+
         return KeywordMatcher.IsMatch(text, match);
     }
 
     /// <summary>
-    /// キーワード判定用に、タイトルと URL を 1 つの文字列へまとめる。
-    /// フィードによってはどちらか片方しか無いことがあるため、両方を連結して扱う。
+    /// キーワード判定用に、タイトル文字列だけを返す。
+    /// URL ではなく、タイトル本文だけを判定対象にする。
     /// </summary>
     private static string BuildMatchText(FeedItem item)
     {
-        return string.Join(
-            " ",
-            new[] { item.Title, item.Url }
-                .Where(static value => !string.IsNullOrWhiteSpace(value)));
+        return item.Title ?? string.Empty;
     }
 
     /// <summary>
