@@ -46,6 +46,7 @@ public sealed class PageProcessor
         PageConfig config,
         string errorWebhookUrl,
         Func<string, string> resolveWebhookUrl,
+        bool dryRun,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -68,7 +69,7 @@ public sealed class PageProcessor
         try
         {
             var topFetch = await _feedHttpClient.FetchAsync(config.Url, state.TopPageHttpCache, cancellationToken).ConfigureAwait(false);
-            await NotifyUrlChangedAsync(config.Name, config.Url, topFetch.FinalUrl, errorWebhookUrl, cancellationToken).ConfigureAwait(false);
+            await NotifyUrlChangedAsync(config.Name, config.Url, topFetch.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
 
             var topState = state with
             {
@@ -96,7 +97,7 @@ public sealed class PageProcessor
                 };
             }
 
-            await NotifyUrlChangedAsync(config.Name, contentFetchPlan.PageUrl, contentFetchPlan.FetchResult.FinalUrl, errorWebhookUrl, cancellationToken).ConfigureAwait(false);
+            await NotifyUrlChangedAsync(config.Name, contentFetchPlan.PageUrl, contentFetchPlan.FetchResult.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
             nextState = nextState with
             {
                 PageUrl = contentFetchPlan.FetchResult.FinalUrl,
@@ -136,16 +137,19 @@ public sealed class PageProcessor
             if (changed)
             {
                 var webhookUrl = resolveWebhookUrl(config.WebhookSecretKey);
-                var messages = _messageBuilder.BuildPageChangedMessages(
-                    config.Name,
-                    contentFetchPlan.FetchResult.FinalUrl,
-                    nextState.Content,
-                    extractedContent);
-
-                var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
-                if (!notified)
+                if (!dryRun)
                 {
-                    throw new InvalidOperationException($"ページ差分通知に失敗しました。pageId={config.Id}");
+                    var messages = _messageBuilder.BuildPageChangedMessages(
+                        config.Name,
+                        contentFetchPlan.FetchResult.FinalUrl,
+                        nextState.Content,
+                        extractedContent);
+
+                    var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
+                    if (!notified)
+                    {
+                        throw new InvalidOperationException($"ページ差分通知に失敗しました。pageId={config.Id}");
+                    }
                 }
             }
 
@@ -369,9 +373,15 @@ public sealed class PageProcessor
         string registeredUrl,
         string actualUrl,
         string errorWebhookUrl,
+        bool dryRun,
         CancellationToken cancellationToken)
     {
         if (string.Equals(registeredUrl, actualUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (dryRun)
         {
             return;
         }

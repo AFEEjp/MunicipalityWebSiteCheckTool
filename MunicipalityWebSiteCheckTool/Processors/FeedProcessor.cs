@@ -48,6 +48,7 @@ public sealed class FeedProcessor
         FeedConfig config,
         string errorWebhookUrl,
         Func<string?, string> resolveWebhookUrl,
+        bool dryRun,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -80,7 +81,7 @@ public sealed class FeedProcessor
                 CircuitOpenUntil = null
             };
 
-            await NotifyUrlChangedAsync(config, fetchResult.FinalUrl, errorWebhookUrl, cancellationToken).ConfigureAwait(false);
+            await NotifyUrlChangedAsync(config, fetchResult.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
 
             if (fetchResult.IsNotModified)
             {
@@ -112,10 +113,13 @@ public sealed class FeedProcessor
                 {
                     var keywords = KeywordMatcher.DetectKeywords(BuildMatchText(item), config.Match);
                     var messages = _messageBuilder.BuildNewItemMessages(config.Name, item, keywords);
-                    var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
-                    if (!notified)
+                    if (!dryRun)
                     {
-                        throw new InvalidOperationException($"Discord 通知に失敗しました。feedId={config.Id}");
+                        var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
+                        if (!notified)
+                        {
+                            throw new InvalidOperationException($"Discord 通知に失敗しました。feedId={config.Id}");
+                        }
                     }
 
                     seen = SeenList.Add(
@@ -136,10 +140,13 @@ public sealed class FeedProcessor
                 {
                     var messageUrl = item.Url ?? config.Url;
                     var messages = _messageBuilder.BuildTitleChangedMessages(config.Name, messageUrl, existing.Title, item.Title);
-                    var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
-                    if (!notified)
+                    if (!dryRun)
                     {
-                        throw new InvalidOperationException($"タイトル変更通知に失敗しました。feedId={config.Id}");
+                        var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
+                        if (!notified)
+                        {
+                            throw new InvalidOperationException($"タイトル変更通知に失敗しました。feedId={config.Id}");
+                        }
                     }
 
                     seen = SeenList.UpdateTitle(seen, item.ItemKey, item.Title);
@@ -219,9 +226,15 @@ public sealed class FeedProcessor
         FeedConfig config,
         string finalUrl,
         string errorWebhookUrl,
+        bool dryRun,
         CancellationToken cancellationToken)
     {
         if (string.Equals(config.Url, finalUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (dryRun)
         {
             return;
         }
