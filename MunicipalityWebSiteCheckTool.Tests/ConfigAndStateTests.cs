@@ -41,6 +41,30 @@ public sealed class ConfigAndStateTests : IDisposable
     }
 
     [Fact]
+    public async Task ConfigFileLoader_LoadFeedsAsync_ReadConfigFilesInSubDirectories()
+    {
+        // feeds 配下のサブフォルダも再帰的に読めることを確認する。
+        var feedsDirectory = Path.Combine(_rootDirectory, "feeds-nested");
+        var rssDirectory = Path.Combine(feedsDirectory, "rss");
+        Directory.CreateDirectory(rssDirectory);
+        await File.WriteAllTextAsync(Path.Combine(rssDirectory, "a.json"), """
+            {
+              "id": "feed-nested-a",
+              "name": "Nested A",
+              "url": "https://example.com/a.xml",
+              "type": "rss",
+              "match": { "first": [], "second": [], "exclude": [] },
+              "temporaryDisabled": false
+            }
+            """);
+
+        var feeds = await ConfigFileLoader.LoadFeedsAsync(feedsDirectory, settings: null, CancellationToken.None);
+
+        var feed = Assert.Single(feeds);
+        Assert.Equal("feed-nested-a", feed.Id);
+    }
+
+    [Fact]
     public async Task ConfigFileLoader_LoadFeedsAsync_ThrowWithFilePathWhenJsonIsBroken()
     {
         // JSON 構文エラー時にファイルパス付きで失敗することを確認する。

@@ -51,7 +51,7 @@ public static class ConfigFileLoader
             throw new DirectoryNotFoundException($"feeds ディレクトリが見つかりません: {feedsDirectory}");
         }
 
-        var files = Directory.GetFiles(feedsDirectory, "*.json", SearchOption.TopDirectoryOnly)
+        var files = Directory.GetFiles(feedsDirectory, "*.json", SearchOption.AllDirectories)
             .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
