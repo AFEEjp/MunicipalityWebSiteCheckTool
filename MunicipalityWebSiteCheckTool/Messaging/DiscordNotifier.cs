@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using MunicipalityWebSiteCheckTool.Http;
 
 namespace MunicipalityWebSiteCheckTool.Messaging;
@@ -83,11 +84,17 @@ public sealed class DiscordNotifier(IDiscordHttpClient discordHttpClient)
     /// </summary>
     private static string CreatePayload(string message)
     {
-        return JsonSerializer.Serialize(new DiscordWebhookPayload(message));
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+
+        return JsonSerializer.Serialize(new DiscordWebhookPayload
+        {
+            Content = message
+        });
     }
 
-    private sealed record DiscordWebhookPayload(string Content)
+    private sealed class DiscordWebhookPayload
     {
-        public string content { get; } = Content;
+        [JsonPropertyName("content")]
+        public required string Content { get; init; }
     }
 }
