@@ -1,8 +1,16 @@
 {
   "profiles": {
-    "MunicipalityWebSiteCheckTool": {
+    "WSL": {
+      "commandName": "WSL2",
+      "distributionName": ""
+    },
+    "Mode=Feed": {
       "commandName": "Project",
-      "commandLineArgs": "--mode feed"
+      "commandLineArgs": "--mode feed --feeds-dir .\\feeds --state-dir .\\local-testdata\\state-feed"
+    },
+    "Mode=Page": {
+      "commandName": "Project",
+      "commandLineArgs": "--mode page --feeds-dir .\\pages --state-dir .\\local-testdata\\state-pages"
     }
   }
 }
