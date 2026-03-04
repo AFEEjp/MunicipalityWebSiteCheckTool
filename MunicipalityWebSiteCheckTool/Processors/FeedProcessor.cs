@@ -14,14 +14,14 @@ public sealed class FeedProcessor
     private const int CircuitOpenThreshold = 3;
     private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(30);
 
-    private readonly FeedHttpClient _feedHttpClient;
+    private readonly IFeedHttpClient _feedHttpClient;
     private readonly StateStore _stateStore;
     private readonly MessageBuilder _messageBuilder;
     private readonly DiscordNotifier _discordNotifier;
     private readonly IReadOnlyDictionary<string, IFeedSource> _feedSources;
 
     public FeedProcessor(
-        FeedHttpClient feedHttpClient,
+        IFeedHttpClient feedHttpClient,
         StateStore stateStore,
         MessageBuilder messageBuilder,
         DiscordNotifier discordNotifier,

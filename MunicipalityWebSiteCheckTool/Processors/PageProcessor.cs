@@ -16,13 +16,13 @@ public sealed class PageProcessor
     private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(30);
     private static readonly HtmlParser HtmlParser = new();
 
-    private readonly FeedHttpClient _feedHttpClient;
+    private readonly IFeedHttpClient _feedHttpClient;
     private readonly StateStore _stateStore;
     private readonly MessageBuilder _messageBuilder;
     private readonly DiscordNotifier _discordNotifier;
 
     public PageProcessor(
-        FeedHttpClient feedHttpClient,
+        IFeedHttpClient feedHttpClient,
         StateStore stateStore,
         MessageBuilder messageBuilder,
         DiscordNotifier discordNotifier)

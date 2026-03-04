@@ -179,7 +179,7 @@ internal static class ProgramEntry
         services.AddSingleton<IFeedSource, HtmlFeedSource>();
 
         services
-            .AddHttpClient<FeedHttpClient>(client =>
+            .AddHttpClient<IFeedHttpClient, FeedHttpClient>(client =>
             {
                 // 監視対象サイトは応答が遅いことがあるので、少し長めのタイムアウトにする。
                 client.Timeout = TimeSpan.FromSeconds(60);
@@ -194,7 +194,7 @@ internal static class ProgramEntry
                 sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(retryAttempt * 2)));
 
         services
-            .AddHttpClient<DiscordHttpClient>(client =>
+            .AddHttpClient<IDiscordHttpClient, DiscordHttpClient>(client =>
             {
                 // Discord Webhook は短時間で応答する前提なので、短めのタイムアウトにする。
                 client.Timeout = TimeSpan.FromSeconds(30);

@@ -3,7 +3,7 @@ using MunicipalityWebSiteCheckTool.Http;
 
 namespace MunicipalityWebSiteCheckTool.Messaging;
 
-public sealed class DiscordNotifier(DiscordHttpClient discordHttpClient)
+public sealed class DiscordNotifier(IDiscordHttpClient discordHttpClient)
 {
     private const int MaxRetryCount = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);

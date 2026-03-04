@@ -2,7 +2,7 @@ using System.Text;
 
 namespace MunicipalityWebSiteCheckTool.Http;
 
-public class DiscordHttpClient(HttpClient httpClient)
+public class DiscordHttpClient(HttpClient httpClient) : IDiscordHttpClient
 {
     /// <summary>
     /// Discord Webhook へ JSON ペイロードをそのまま POST する。

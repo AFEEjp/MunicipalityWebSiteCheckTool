@@ -6,13 +6,17 @@ using UtfUnknown;
 
 namespace MunicipalityWebSiteCheckTool.Http;
 
-public class FeedHttpClient(HttpClient httpClient)
+public class FeedHttpClient(HttpClient httpClient) : IFeedHttpClient
 {
     static FeedHttpClient()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
+    /// <summary>
+    /// 条件付き GET を使って監視対象を取得し、本文・最終 URL・新しいキャッシュ情報を返す。
+    /// 304 の場合は本文を null にし、呼び出し側が差分なしとして扱える形にする。
+    /// </summary>
     public async Task<FetchResult> FetchAsync(string url, HttpCacheInfo? cache, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
