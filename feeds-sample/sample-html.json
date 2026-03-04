@@ -1,0 +1,23 @@
+{
+  "id": "sample-html",
+  "name": "サンプル HTML 監視",
+  "url": "https://example.com/public-comment/",
+  "type": "html",
+  "match": {
+    "first": [
+      "意見募集"
+    ],
+    "second": [
+      "募集"
+    ],
+    "exclude": [
+      "受付終了"
+    ]
+  },
+  "temporaryDisabled": true,
+  "cadence": "fast",
+  "webhookKey": "DISCORD_WEBHOOK_PUBCOM_SUB",
+  "state": {
+    "maxSeen": 300
+  }
+}
