@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MunicipalityWebSiteCheckTool": {
+      "commandName": "Project",
+      "commandLineArgs": "--mode feed"
+    }
+  }
+}
