@@ -1,0 +1,12 @@
+{
+  "id": "sample-page",
+  "name": "サンプル ページ差分監視",
+  "url": "https://example.com/committee/",
+  "temporaryDisabled": true,
+  "webhookSecretKey": "DISCORD_WEBHOOK_PAGE_SAMPLE",
+  "followLink": {
+    "textMatch": "次回の開催について",
+    "linkSelector": "a"
+  },
+  "contentSelector": "main"
+}

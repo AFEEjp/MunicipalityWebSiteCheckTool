@@ -1,0 +1,25 @@
+{
+  "id": "sample-rss",
+  "name": "サンプル RSS 監視",
+  "url": "https://example.com/rss.xml",
+  "type": "rss",
+  "match": {
+    "first": [
+      "意見募集",
+      "パブリックコメント"
+    ],
+    "second": [
+      "条例",
+      "計画"
+    ],
+    "exclude": [
+      "終了",
+      "結果公表"
+    ]
+  },
+  "temporaryDisabled": true,
+  "cadence": "normal",
+  "state": {
+    "maxSeen": 500
+  }
+}
