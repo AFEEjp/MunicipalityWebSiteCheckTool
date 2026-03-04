@@ -396,3 +396,10 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# DotNet
+.dotnet/
+.dotnet-cli-home/
+.artifacts/
+.build-verify/
+.obj-verify/
