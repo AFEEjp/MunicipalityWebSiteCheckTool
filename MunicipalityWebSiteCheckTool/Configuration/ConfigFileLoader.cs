@@ -28,12 +28,21 @@ public static class ConfigFileLoader
 
         foreach (var file in files)
         {
-            await using var stream = File.OpenRead(file);
-            var config = await JsonSerializer.DeserializeAsync(
+            FeedConfig config;
+            try
+            {
+                await using var stream = File.OpenRead(file);
+                config = await JsonSerializer.DeserializeAsync(
                              stream,
                              AppJsonContext.Default.FeedConfig,
                              cancellationToken)
                          ?? throw new InvalidOperationException($"feeds JSON の解析に失敗しました: {file}");
+            }
+            catch (JsonException ex)
+            {
+                // JSON 構文エラー時に対象ファイルが分かるよう、ファイルパス付きで包み直す。
+                throw new InvalidOperationException($"feeds JSON の解析に失敗しました: {file}", ex);
+            }
 
             if (!seenIds.Add(config.Id))
             {
@@ -68,12 +77,21 @@ public static class ConfigFileLoader
 
         foreach (var file in files)
         {
-            await using var stream = File.OpenRead(file);
-            var config = await JsonSerializer.DeserializeAsync(
+            PageConfig config;
+            try
+            {
+                await using var stream = File.OpenRead(file);
+                config = await JsonSerializer.DeserializeAsync(
                              stream,
                              AppJsonContext.Default.PageConfig,
                              cancellationToken)
                          ?? throw new InvalidOperationException($"pages JSON の解析に失敗しました: {file}");
+            }
+            catch (JsonException ex)
+            {
+                // JSON 構文エラー時に対象ファイルが分かるよう、ファイルパス付きで包み直す。
+                throw new InvalidOperationException($"pages JSON の解析に失敗しました: {file}", ex);
+            }
 
             if (!seenIds.Add(config.Id))
             {
