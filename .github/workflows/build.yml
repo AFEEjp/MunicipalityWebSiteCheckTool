@@ -1,0 +1,75 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore ./MunicipalityWebSiteCheckTool/MunicipalityWebSiteCheckTool.slnx
+
+      - name: Build
+        run: dotnet build ./MunicipalityWebSiteCheckTool/MunicipalityWebSiteCheckTool.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test ./MunicipalityWebSiteCheckTool/MunicipalityWebSiteCheckTool.slnx -c Release --no-build
+
+      - name: Publish Linux x64 single file
+        run: >
+          dotnet publish ./MunicipalityWebSiteCheckTool/MunicipalityWebSiteCheckTool.slnx
+          -c Release
+          -r linux-x64
+          --no-build
+          --self-contained true
+          /p:PublishSingleFile=true
+          /p:PublishTrimmed=false
+
+      - name: Package publish output
+        shell: bash
+        run: |
+          cd ./MunicipalityWebSiteCheckTool/bin/Release/net10.0/linux-x64/publish
+          zip -r ../../MunicipalityWebSiteCheckTool-linux-x64.zip .
+
+      - name: Update monitor runtime release
+        if: >
+          github.event_name != 'pull_request' &&
+          (
+            github.ref == 'refs/heads/main' ||
+            github.ref == 'refs/heads/master'
+          )
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assetPath = "./MunicipalityWebSiteCheckTool/bin/Release/net10.0/MunicipalityWebSiteCheckTool-linux-x64.zip"
+          gh release view monitor-runtime *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create monitor-runtime $assetPath --title "monitor-runtime" --notes "GitHub Actions 用の監視実行ファイルです。"
+            exit 0
+          }
+
+          gh release upload monitor-runtime $assetPath --clobber
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: municipality-website-checktool-linux-x64
+          path: ./MunicipalityWebSiteCheckTool/bin/Release/net10.0/MunicipalityWebSiteCheckTool-linux-x64.zip
