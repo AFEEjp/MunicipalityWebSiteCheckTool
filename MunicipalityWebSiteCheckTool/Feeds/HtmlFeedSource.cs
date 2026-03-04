@@ -122,9 +122,11 @@ public sealed partial class HtmlFeedSource : IFeedSource
             return null;
         }
 
-        if (Uri.TryCreate(normalized, UriKind.Absolute, out var absoluteUri))
+        if (Uri.TryCreate(normalized, UriKind.RelativeOrAbsolute, out var parsedUri) &&
+            parsedUri.IsAbsoluteUri &&
+            !string.Equals(parsedUri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
         {
-            return absoluteUri.ToString();
+            return parsedUri.ToString();
         }
 
         if (baseUri is not null && Uri.TryCreate(baseUri, normalized, out var relativeUri))
