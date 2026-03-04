@@ -263,7 +263,7 @@ public sealed class PageProcessor
             var selectedText = string.Join(
                 "\n",
                 nodes
-                    .Select(node => NormalizeText(node.TextContent))
+                    .Select(ExtractReadableText)
                     .Where(text => !string.IsNullOrWhiteSpace(text)));
 
             if (!string.IsNullOrWhiteSpace(selectedText))
@@ -272,8 +272,8 @@ public sealed class PageProcessor
             }
         }
 
-        return NormalizeText(document.Body?.TextContent) ??
-               NormalizeText(document.DocumentElement?.TextContent) ??
+        return ExtractReadableText(document.Body) ??
+               ExtractReadableText(document.DocumentElement) ??
                string.Empty;
     }
 
@@ -444,6 +444,120 @@ public sealed class PageProcessor
             " ",
             value
                 .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    /// <summary>
+    /// 差分比較用の本文テキストを、段落区切りを保ちながら取り出す。
+    /// 段落や br の区切りは改行として残し、行内の余分な空白だけを詰める。
+    /// </summary>
+    private static string? ExtractReadableText(INode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        var builder = new StringBuilder();
+        AppendReadableText(builder, node);
+
+        return NormalizeMultilineText(builder.ToString());
+    }
+
+    /// <summary>
+    /// ノードを順にたどり、本文テキストを StringBuilder へ積み上げる。
+    /// ブロック要素の終端と br 要素では明示的に改行を入れる。
+    /// </summary>
+    private static void AppendReadableText(StringBuilder builder, INode node)
+    {
+        if (node is IText textNode)
+        {
+            builder.Append(textNode.Data);
+            return;
+        }
+
+        if (node is IElement element)
+        {
+            if (string.Equals(element.TagName, "BR", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLineBreak(builder);
+                return;
+            }
+
+            foreach (var child in element.ChildNodes)
+            {
+                AppendReadableText(builder, child);
+            }
+
+            if (IsBlockElement(element))
+            {
+                AppendLineBreak(builder);
+            }
+
+            return;
+        }
+
+        foreach (var child in node.ChildNodes)
+        {
+            AppendReadableText(builder, child);
+        }
+    }
+
+    /// <summary>
+    /// 複数行の本文を比較用に整形する。
+    /// 各行の空白は詰めるが、行の区切り自体は保つ。
+    /// </summary>
+    private static string? NormalizeMultilineText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalizedLines = value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Select(NormalizeText)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
+
+        if (normalizedLines.Length == 0)
+        {
+            return null;
+        }
+
+        return string.Join("\n", normalizedLines);
+    }
+
+    /// <summary>
+    /// ブロック要素かどうかを判定する。
+    /// 段落ごとに改行を入れたい要素だけを対象にする。
+    /// </summary>
+    private static bool IsBlockElement(IElement element)
+    {
+        return element.TagName.ToUpperInvariant() switch
+        {
+            "ADDRESS" or "ARTICLE" or "ASIDE" or "BLOCKQUOTE" or "DD" or "DIV" or "DL" or "DT" or
+            "FIELDSET" or "FIGCAPTION" or "FIGURE" or "FOOTER" or "FORM" or "H1" or "H2" or "H3" or
+            "H4" or "H5" or "H6" or "HEADER" or "HR" or "LI" or "MAIN" or "NAV" or "OL" or "P" or
+            "PRE" or "SECTION" or "TABLE" or "TBODY" or "TD" or "TFOOT" or "TH" or "THEAD" or "TR" or
+            "UL" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// 末尾が改行でない場合だけ改行を追加する。
+    /// ネストしたブロック要素があっても空行を増やしすぎないための補助。
+    /// </summary>
+    private static void AppendLineBreak(StringBuilder builder)
+    {
+        if (builder.Length == 0 || builder[^1] == '\n')
+        {
+            return;
+        }
+
+        builder.Append('\n');
     }
 
     /// <summary>

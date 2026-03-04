@@ -199,6 +199,46 @@ public sealed class ProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task PageProcessor_ProcessAsync_PreserveLineBreaksInExtractedContent()
+    {
+        // 段落ごとの改行を保持したまま本文を state に保存することを確認する。
+        var response = CreateHtmlResponse("""
+            <html>
+              <body>
+                <main>
+                  <p>一行目</p>
+                  <p>二行目</p>
+                  <div>三行目<br>四行目</div>
+                </main>
+              </body>
+            </html>
+            """);
+
+        var handler = new StubHttpMessageHandler(_ => response);
+        using var httpClient = new HttpClient(handler);
+        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
+        var stateStore = CreateStateStore();
+        var processor = new PageProcessor(
+            new FeedHttpClient(httpClient),
+            stateStore,
+            new MessageBuilder(),
+            new DiscordNotifier(new DiscordHttpClient(discordClient)));
+
+        var result = await processor.ProcessAsync(
+            CreatePageConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/page",
+            dryRun: true,
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+
+        var state = await stateStore.LoadPageAsync("page-test", CancellationToken.None);
+        Assert.NotNull(state);
+        Assert.Equal("一行目\n二行目\n三行目\n四行目", state!.Content);
+    }
+
+    [Fact]
     public async Task PageProcessor_ProcessAsync_ReuseStoredPageUrlWhenTopPageIsNotModified()
     {
         // followLink ありでトップページが 304 の場合、保存済みの本文 URL を使って再取得することを確認する。
