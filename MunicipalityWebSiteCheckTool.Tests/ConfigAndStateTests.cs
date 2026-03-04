@@ -34,7 +34,7 @@ public sealed class ConfigAndStateTests : IDisposable
             }
             """);
 
-        var feeds = await ConfigFileLoader.LoadFeedsAsync(feedsDirectory, CancellationToken.None);
+        var feeds = await ConfigFileLoader.LoadFeedsAsync(feedsDirectory, settings: null, CancellationToken.None);
 
         var feed = Assert.Single(feeds);
         Assert.Equal("feed-a", feed.Id);
@@ -50,7 +50,7 @@ public sealed class ConfigAndStateTests : IDisposable
         await File.WriteAllTextAsync(brokenFile, "{ invalid json");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            ConfigFileLoader.LoadFeedsAsync(feedsDirectory, CancellationToken.None));
+            ConfigFileLoader.LoadFeedsAsync(feedsDirectory, settings: null, CancellationToken.None));
 
         Assert.Contains(brokenFile, ex.Message);
         Assert.IsType<JsonException>(ex.InnerException);
@@ -85,6 +85,79 @@ public sealed class ConfigAndStateTests : IDisposable
             ConfigFileLoader.LoadPagesAsync(pagesDirectory, CancellationToken.None));
 
         Assert.Contains("重複", ex.Message);
+    }
+
+    [Fact]
+    public async Task ConfigFileLoader_LoadFeedsAsync_ApplyDefaultMatchWhenFeedMatchIsMissing()
+    {
+        // 個別 match が無い場合だけ共通 defaultMatch が補われることを確認する。
+        var feedsDirectory = Path.Combine(_rootDirectory, "feeds-default");
+        Directory.CreateDirectory(feedsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(feedsDirectory, "a.json"), """
+            {
+              "id": "feed-a",
+              "name": "A",
+              "url": "https://example.com/a.xml",
+              "type": "rss",
+              "temporaryDisabled": false
+            }
+            """);
+
+        var settings = new FeedSettingsConfig
+        {
+            DefaultMatch = new MatchConfig
+            {
+                First = ["意見募集"],
+                Second = ["条例"],
+                Exclude = ["終了"]
+            }
+        };
+
+        var feeds = await ConfigFileLoader.LoadFeedsAsync(feedsDirectory, settings, CancellationToken.None);
+
+        var feed = Assert.Single(feeds);
+        Assert.NotNull(feed.Match);
+        Assert.Equal(["意見募集"], feed.Match!.First);
+        Assert.Equal(["条例"], feed.Match.Second);
+    }
+
+    [Fact]
+    public async Task ConfigFileLoader_LoadFeedsAsync_PrioritizeFeedSpecificMatch()
+    {
+        // 個別 match がある場合は、共通 defaultMatch より個別設定を優先する。
+        var feedsDirectory = Path.Combine(_rootDirectory, "feeds-priority");
+        Directory.CreateDirectory(feedsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(feedsDirectory, "a.json"), """
+            {
+              "id": "feed-a",
+              "name": "A",
+              "url": "https://example.com/a.xml",
+              "type": "rss",
+              "match": {
+                "first": ["個別第一語"],
+                "second": ["個別第二語"],
+                "exclude": ["個別除外語"]
+              },
+              "temporaryDisabled": false
+            }
+            """);
+
+        var settings = new FeedSettingsConfig
+        {
+            DefaultMatch = new MatchConfig
+            {
+                First = ["共通第一語"],
+                Second = ["共通第二語"],
+                Exclude = ["共通除外語"]
+            }
+        };
+
+        var feeds = await ConfigFileLoader.LoadFeedsAsync(feedsDirectory, settings, CancellationToken.None);
+
+        var feed = Assert.Single(feeds);
+        Assert.Equal(["個別第一語"], feed.Match!.First);
+        Assert.Equal(["個別第二語"], feed.Match.Second);
+        Assert.Equal(["個別除外語"], feed.Match.Exclude);
     }
 
     [Fact]

@@ -54,6 +54,7 @@ internal static class ProgramEntry
 
         string? mode = null;
         string? cadence = null;
+        string feedSettingsPath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "feed-settings.json"));
         string feedsDirectory = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "feeds"));
         string pagesDirectory = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "pages"));
         string stateDirectory = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "state"));
@@ -70,6 +71,9 @@ internal static class ProgramEntry
                     break;
                 case "--cadence":
                     cadence = RequireNextValue(args, ref index, "--cadence");
+                    break;
+                case "--feed-settings":
+                    feedSettingsPath = Path.GetFullPath(RequireNextValue(args, ref index, "--feed-settings"));
                     break;
                 case "--feeds-dir":
                     feedsDirectory = Path.GetFullPath(RequireNextValue(args, ref index, "--feeds-dir"));
@@ -100,6 +104,7 @@ internal static class ProgramEntry
         {
             Mode = validatedMode.ToLowerInvariant(),
             Cadence = cadence,
+            FeedSettingsPath = feedSettingsPath,
             FeedsDirectory = feedsDirectory,
             PagesDirectory = pagesDirectory,
             StateDirectory = stateDirectory,
@@ -145,7 +150,8 @@ internal static class ProgramEntry
             _ = appOptions.DiscordWebhookError;
 
             // feed モードでは設定ファイル自体も先に読めることを確認しておく。
-            await ConfigFileLoader.LoadFeedsAsync(options.FeedsDirectory, cancellationToken).ConfigureAwait(false);
+            var settings = await ConfigFileLoader.LoadFeedSettingsAsync(options.FeedSettingsPath, cancellationToken).ConfigureAwait(false);
+            await ConfigFileLoader.LoadFeedsAsync(options.FeedsDirectory, settings, cancellationToken).ConfigureAwait(false);
             return;
         }
 

@@ -55,6 +55,9 @@ public sealed class FeedProcessor
         ArgumentException.ThrowIfNullOrWhiteSpace(errorWebhookUrl);
         ArgumentNullException.ThrowIfNull(resolveWebhookUrl);
 
+        // ここに来る時点で ConfigFileLoader により match 解決済みの前提。
+        var match = config.Match ?? throw new InvalidOperationException($"match が解決されていません。feedId={config.Id}");
+
         var state = await _stateStore.LoadAsync(config.Id, cancellationToken).ConfigureAwait(false) ??
                     FeedState.CreateNew(config);
 
@@ -103,7 +106,7 @@ public sealed class FeedProcessor
 
             foreach (var item in items)
             {
-                if (!IsMatchTarget(item, config.Match))
+                if (!IsMatchTarget(item, match))
                 {
                     continue;
                 }
@@ -111,7 +114,7 @@ public sealed class FeedProcessor
                 var existing = SeenList.Find(seen, item.ItemKey);
                 if (existing is null)
                 {
-                    var keywords = KeywordMatcher.DetectKeywords(BuildMatchText(item), config.Match);
+                    var keywords = KeywordMatcher.DetectKeywords(BuildMatchText(item), match);
                     var messages = _messageBuilder.BuildNewItemMessages(config.Name, item, keywords);
                     if (!dryRun)
                     {

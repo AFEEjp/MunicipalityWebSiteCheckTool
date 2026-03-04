@@ -58,7 +58,8 @@ public sealed class MonitorRunner
         AppOptions appOptions,
         CancellationToken cancellationToken)
     {
-        var feeds = await ConfigFileLoader.LoadFeedsAsync(options.FeedsDirectory, cancellationToken).ConfigureAwait(false);
+        var settings = await ConfigFileLoader.LoadFeedSettingsAsync(options.FeedSettingsPath, cancellationToken).ConfigureAwait(false);
+        var feeds = await ConfigFileLoader.LoadFeedsAsync(options.FeedsDirectory, settings, cancellationToken).ConfigureAwait(false);
         var targets = feeds
             .Where(static feed => !feed.TemporaryDisabled)
             .Where(feed => string.IsNullOrWhiteSpace(options.Cadence) ||

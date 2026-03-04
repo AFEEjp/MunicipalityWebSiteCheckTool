@@ -10,7 +10,7 @@ public record FeedConfig
 
     public required string Type { get; init; }
 
-    public required MatchConfig Match { get; init; }
+    public MatchConfig? Match { get; init; }
 
     public bool TemporaryDisabled { get; init; }
 
@@ -24,4 +24,9 @@ public record FeedConfig
 public record FeedStateConfig
 {
     public int MaxSeen { get; init; } = 500;
+}
+
+public record FeedSettingsConfig
+{
+    public MatchConfig? DefaultMatch { get; init; }
 }

@@ -7,10 +7,42 @@ namespace MunicipalityWebSiteCheckTool.Configuration;
 public static class ConfigFileLoader
 {
     /// <summary>
+    /// feed 共通設定 JSON を読み込む。
+    /// ファイルが無い場合は未設定扱いにし、個別設定だけで動かせるようにする。
+    /// </summary>
+    public static async Task<FeedSettingsConfig?> LoadFeedSettingsAsync(string feedSettingsPath, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedSettingsPath);
+
+        if (!File.Exists(feedSettingsPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(feedSettingsPath);
+            return await JsonSerializer.DeserializeAsync(
+                       stream,
+                       AppJsonContext.Default.FeedSettingsConfig,
+                       cancellationToken)
+                   ?? throw new InvalidOperationException($"feed settings JSON の解析に失敗しました: {feedSettingsPath}");
+        }
+        catch (JsonException ex)
+        {
+            // 共通設定の構文エラー時も対象ファイルが分かるように包み直す。
+            throw new InvalidOperationException($"feed settings JSON の解析に失敗しました: {feedSettingsPath}", ex);
+        }
+    }
+
+    /// <summary>
     /// feeds ディレクトリ配下の JSON を読み込み、重複 ID を検出しながら返す。
     /// 設定不備は起動直後に落としたいので、1 件でも壊れていれば例外にする。
     /// </summary>
-    public static async Task<IReadOnlyList<FeedConfig>> LoadFeedsAsync(string feedsDirectory, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<FeedConfig>> LoadFeedsAsync(
+        string feedsDirectory,
+        FeedSettingsConfig? settings,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(feedsDirectory);
 
@@ -49,7 +81,7 @@ public static class ConfigFileLoader
                 throw new InvalidOperationException($"feeds の id が重複しています: {config.Id}");
             }
 
-            results.Add(config);
+            results.Add(ApplyDefaultMatch(config, settings?.DefaultMatch, file));
         }
 
         return results;
@@ -102,5 +134,27 @@ public static class ConfigFileLoader
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// 個別 match が未指定の feed にだけ、共通の defaultMatch を適用する。
+    /// どちらも無い場合は監視条件が不明になるため fail-fast とする。
+    /// </summary>
+    private static FeedConfig ApplyDefaultMatch(FeedConfig config, MatchConfig? defaultMatch, string filePath)
+    {
+        if (config.Match is not null)
+        {
+            return config;
+        }
+
+        if (defaultMatch is null)
+        {
+            throw new InvalidOperationException($"match が未指定で、共通 defaultMatch もありません: {filePath}");
+        }
+
+        return config with
+        {
+            Match = defaultMatch
+        };
     }
 }
