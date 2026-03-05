@@ -84,7 +84,9 @@ public sealed class MessageBuilder
         string pageName,
         string pageUrl,
         string? previousContent,
-        string? currentContent)
+        string? currentContent,
+        string? previousTitle = null,
+        string? currentTitle = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pageName);
         ArgumentException.ThrowIfNullOrWhiteSpace(pageUrl);
@@ -92,6 +94,8 @@ public sealed class MessageBuilder
         var builder = new StringBuilder();
         builder.AppendLine($"[ページ更新] {pageName}");
         builder.AppendLine($"URL: {pageUrl}");
+        builder.AppendLine($"変更前タイトル: {NormalizeLine(previousTitle) ?? "(なし)"}");
+        builder.AppendLine($"変更後タイトル: {NormalizeLine(currentTitle) ?? "(なし)"}");
 
         var diffLines = BuildDiffLines(previousContent, currentContent);
         if (diffLines.Count == 0)

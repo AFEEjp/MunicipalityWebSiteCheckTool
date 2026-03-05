@@ -14,6 +14,8 @@ public record PageState
 
     public string? Content { get; init; }
 
+    public string? Title { get; init; }
+
     public HttpCacheInfo? TopPageHttpCache { get; init; }
 
     public HttpCacheInfo? ContentPageHttpCache { get; init; }

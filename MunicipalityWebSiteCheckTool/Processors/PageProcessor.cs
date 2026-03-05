@@ -115,12 +115,16 @@ public sealed class PageProcessor
             }
 
             var extractedContent = ExtractTargetContent(contentFetchPlan.FetchResult.Content!, config.ContentSelector);
+            var extractedTitle = ExtractPageTitle(contentFetchPlan.FetchResult.Content!);
             var contentHash = ComputeHash(extractedContent);
+            var titleChanged = !string.Equals(nextState.Title, extractedTitle, StringComparison.Ordinal);
+            var contentChanged = !string.Equals(nextState.ContentHash, contentHash, StringComparison.Ordinal);
 
-            if (string.Equals(nextState.ContentHash, contentHash, StringComparison.Ordinal))
+            if (!titleChanged && !contentChanged)
             {
                 nextState = nextState with
                 {
+                    Title = extractedTitle,
                     Content = extractedContent,
                     ContentHash = contentHash
                 };
@@ -133,7 +137,9 @@ public sealed class PageProcessor
                 };
             }
 
-            var changed = !string.IsNullOrWhiteSpace(nextState.ContentHash);
+            var hasPreviousState = !string.IsNullOrWhiteSpace(nextState.ContentHash) ||
+                                   !string.IsNullOrWhiteSpace(nextState.Title);
+            var changed = hasPreviousState && (titleChanged || contentChanged);
             if (changed)
             {
                 var webhookUrl = resolveWebhookUrl(config.WebhookSecretKey);
@@ -143,7 +149,9 @@ public sealed class PageProcessor
                         config.Name,
                         contentFetchPlan.FetchResult.FinalUrl,
                         nextState.Content,
-                        extractedContent);
+                        extractedContent,
+                        nextState.Title,
+                        extractedTitle);
 
                     var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
                     if (!notified)
@@ -155,6 +163,7 @@ public sealed class PageProcessor
 
             nextState = nextState with
             {
+                Title = extractedTitle,
                 Content = extractedContent,
                 ContentHash = contentHash
             };
@@ -364,6 +373,16 @@ public sealed class PageProcessor
         var bytes = Encoding.UTF8.GetBytes(content);
         var hash = SHA256.HashData(bytes);
         return Convert.ToHexStringLower(hash);
+    }
+
+    /// <summary>
+    /// 監視対象ページのタイトルを取り出す。
+    /// タイトル比較で更新検知できるよう、空白を整形して保存する。
+    /// </summary>
+    private static string? ExtractPageTitle(string html)
+    {
+        var document = HtmlParser.ParseDocument(html);
+        return NormalizeText(document.Title);
     }
 
     /// <summary>

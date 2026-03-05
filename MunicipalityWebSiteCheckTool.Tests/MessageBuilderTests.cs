@@ -37,9 +37,13 @@ public sealed class MessageBuilderTests
             "審議会",
             "https://example.com/page",
             "旧本文\n変更前",
-            "旧本文\n変更後");
+            "旧本文\n変更後",
+            "旧タイトル",
+            "新タイトル");
 
         var joined = string.Join("\n---\n", messages);
+        Assert.Contains("変更前タイトル: 旧タイトル", joined);
+        Assert.Contains("変更後タイトル: 新タイトル", joined);
         Assert.Contains("```diff", joined);
         Assert.Contains("- 変更前", joined);
         Assert.Contains("+ 変更後", joined);

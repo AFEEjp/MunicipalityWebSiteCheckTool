@@ -186,6 +186,62 @@ public sealed class ProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task PageProcessor_ProcessAsync_DetectTitleOnlyChange()
+    {
+        // 本文が同じでも、タイトルだけ変わった場合に changed=true になることを確認する。
+        var firstResponse = CreateHtmlResponse("""
+            <html>
+              <head><title>変更前タイトル</title></head>
+              <body>
+                <main>本文は同じ</main>
+              </body>
+            </html>
+            """);
+        var secondResponse = CreateHtmlResponse("""
+            <html>
+              <head><title>変更後タイトル</title></head>
+              <body>
+                <main>本文は同じ</main>
+              </body>
+            </html>
+            """);
+
+        var handlerResponses = new Queue<HttpResponseMessage>([firstResponse, secondResponse]);
+        var handler = new StubHttpMessageHandler(_ => handlerResponses.Dequeue());
+        using var httpClient = new HttpClient(handler);
+        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
+        var stateStore = CreateStateStore();
+        var processor = new PageProcessor(
+            new FeedHttpClient(httpClient),
+            stateStore,
+            new MessageBuilder(),
+            new DiscordNotifier(new DiscordHttpClient(discordClient)));
+
+        var first = await processor.ProcessAsync(
+            CreatePageConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/page",
+            dryRun: true,
+            CancellationToken.None);
+        var second = await processor.ProcessAsync(
+            CreatePageConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/page",
+            dryRun: true,
+            CancellationToken.None);
+
+        Assert.True(first.Succeeded);
+        Assert.False(first.Changed);
+        Assert.True(second.Succeeded);
+        Assert.True(second.Changed);
+
+        var state = await stateStore.LoadPageAsync("page-test", CancellationToken.None);
+        Assert.NotNull(state);
+        Assert.Equal("変更後タイトル", state!.Title);
+        Assert.Equal("本文は同じ", state.Content);
+    }
+
+    [Fact]
     public async Task PageProcessor_ProcessAsync_PreserveLineBreaksInExtractedContent()
     {
         // 段落ごとの改行を保持したまま本文を state に保存することを確認する。
