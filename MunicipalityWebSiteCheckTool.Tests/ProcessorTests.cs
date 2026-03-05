@@ -41,20 +41,17 @@ public sealed class ProcessorTests : IDisposable
             });
 
         using var httpClient = new HttpClient(handler);
-        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var stateStore = CreateStateStore();
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
             stateStore,
             new MessageBuilder(),
-            new DiscordNotifier(new DiscordHttpClient(discordClient)),
             [new RssFeedSource(), new HtmlFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
             "https://example.invalid/error",
             _ => "https://example.invalid/pubcom",
-            dryRun: true,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -72,7 +69,6 @@ public sealed class ProcessorTests : IDisposable
         // サーキットブレーカー中は HTTP 取得せずにスキップ扱いになることを確認する。
         var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("呼ばれない想定"));
         using var httpClient = new HttpClient(handler);
-        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var stateStore = CreateStateStore();
         await stateStore.SaveAsync("feed-test", new Domain.FeedState
         {
@@ -86,14 +82,12 @@ public sealed class ProcessorTests : IDisposable
             new FeedHttpClient(httpClient),
             stateStore,
             new MessageBuilder(),
-            new DiscordNotifier(new DiscordHttpClient(discordClient)),
             [new RssFeedSource(), new HtmlFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
             "https://example.invalid/error",
             _ => "https://example.invalid/pubcom",
-            dryRun: true,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -121,20 +115,17 @@ public sealed class ProcessorTests : IDisposable
             });
 
         using var httpClient = new HttpClient(handler);
-        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var stateStore = CreateStateStore();
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
             stateStore,
             new MessageBuilder(),
-            new DiscordNotifier(new DiscordHttpClient(discordClient)),
             [new RssFeedSource(), new HtmlFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
             "https://example.invalid/error",
             _ => "https://example.invalid/pubcom",
-            dryRun: true,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);

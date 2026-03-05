@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using MunicipalityWebSiteCheckTool.Config;
 using MunicipalityWebSiteCheckTool.Domain;
 using MunicipalityWebSiteCheckTool.Feeds;
@@ -17,26 +16,22 @@ public sealed class FeedProcessor
     private readonly IFeedHttpClient _feedHttpClient;
     private readonly StateStore _stateStore;
     private readonly MessageBuilder _messageBuilder;
-    private readonly DiscordNotifier _discordNotifier;
     private readonly IReadOnlyDictionary<string, IFeedSource> _feedSources;
 
     public FeedProcessor(
         IFeedHttpClient feedHttpClient,
         StateStore stateStore,
         MessageBuilder messageBuilder,
-        DiscordNotifier discordNotifier,
         IEnumerable<IFeedSource> feedSources)
     {
         ArgumentNullException.ThrowIfNull(feedHttpClient);
         ArgumentNullException.ThrowIfNull(stateStore);
         ArgumentNullException.ThrowIfNull(messageBuilder);
-        ArgumentNullException.ThrowIfNull(discordNotifier);
         ArgumentNullException.ThrowIfNull(feedSources);
 
         _feedHttpClient = feedHttpClient;
         _stateStore = stateStore;
         _messageBuilder = messageBuilder;
-        _discordNotifier = discordNotifier;
         _feedSources = feedSources.ToDictionary(source => source.Type, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -48,7 +43,6 @@ public sealed class FeedProcessor
         FeedConfig config,
         string errorWebhookUrl,
         Func<string?, string> resolveWebhookUrl,
-        bool dryRun,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -66,6 +60,7 @@ public sealed class FeedProcessor
             return new FeedProcessResult
             {
                 FeedId = config.Id,
+                FeedName = config.Name,
                 Succeeded = true,
                 SkippedByCircuitBreaker = true
             };
@@ -84,7 +79,8 @@ public sealed class FeedProcessor
                 CircuitOpenUntil = null
             };
 
-            await NotifyUrlChangedAsync(config, fetchResult.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
+            var pendingNotifications = new List<PendingNotification>();
+            pendingNotifications.AddRange(BuildUrlChangedNotifications(config, fetchResult.FinalUrl, errorWebhookUrl));
 
             if (fetchResult.IsNotModified)
             {
@@ -92,7 +88,9 @@ public sealed class FeedProcessor
                 return new FeedProcessResult
                 {
                     FeedId = config.Id,
-                    Succeeded = true
+                    FeedName = config.Name,
+                    Succeeded = true,
+                    PendingNotifications = pendingNotifications
                 };
             }
 
@@ -103,6 +101,8 @@ public sealed class FeedProcessor
             var newItemCount = 0;
             var titleChangedCount = 0;
             var webhookUrl = resolveWebhookUrl(config.WebhookKey);
+            var newItems = new List<FeedDetectedItem>();
+            var titleChangedItems = new List<FeedTitleChangedItem>();
 
             foreach (var item in items)
             {
@@ -116,14 +116,11 @@ public sealed class FeedProcessor
                 {
                     var keywords = KeywordMatcher.DetectKeywords(BuildMatchText(item), match);
                     var messages = _messageBuilder.BuildNewItemMessages(config.Name, item, keywords);
-                    if (!dryRun)
+                    pendingNotifications.Add(new PendingNotification
                     {
-                        var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
-                        if (!notified)
-                        {
-                            throw new InvalidOperationException($"Discord 通知に失敗しました。feedId={config.Id}");
-                        }
-                    }
+                        WebhookUrl = webhookUrl,
+                        Messages = messages
+                    });
 
                     seen = SeenList.Add(
                         seen,
@@ -136,6 +133,11 @@ public sealed class FeedProcessor
                         updatedState.MaxSeen);
 
                     newItemCount++;
+                    newItems.Add(new FeedDetectedItem
+                    {
+                        Title = item.Title,
+                        Url = item.Url
+                    });
                     continue;
                 }
 
@@ -143,17 +145,20 @@ public sealed class FeedProcessor
                 {
                     var messageUrl = item.Url ?? config.Url;
                     var messages = _messageBuilder.BuildTitleChangedMessages(config.Name, messageUrl, existing.Title, item.Title);
-                    if (!dryRun)
+                    pendingNotifications.Add(new PendingNotification
                     {
-                        var notified = await _discordNotifier.SendMessagesAsync(webhookUrl, messages, cancellationToken).ConfigureAwait(false);
-                        if (!notified)
-                        {
-                            throw new InvalidOperationException($"タイトル変更通知に失敗しました。feedId={config.Id}");
-                        }
-                    }
+                        WebhookUrl = webhookUrl,
+                        Messages = messages
+                    });
 
                     seen = SeenList.UpdateTitle(seen, item.ItemKey, item.Title);
                     titleChangedCount++;
+                    titleChangedItems.Add(new FeedTitleChangedItem
+                    {
+                        Url = messageUrl,
+                        OldTitle = existing.Title,
+                        NewTitle = item.Title
+                    });
                 }
             }
 
@@ -166,9 +171,13 @@ public sealed class FeedProcessor
             return new FeedProcessResult
             {
                 FeedId = config.Id,
+                FeedName = config.Name,
                 Succeeded = true,
                 NewItemCount = newItemCount,
-                TitleChangedCount = titleChangedCount
+                TitleChangedCount = titleChangedCount,
+                NewItems = newItems,
+                TitleChangedItems = titleChangedItems,
+                PendingNotifications = pendingNotifications
             };
         }
         catch (Exception ex)
@@ -179,6 +188,7 @@ public sealed class FeedProcessor
             return new FeedProcessResult
             {
                 FeedId = config.Id,
+                FeedName = config.Name,
                 Succeeded = false,
                 ErrorMessage = ex.Message
             };
@@ -201,7 +211,7 @@ public sealed class FeedProcessor
 
     /// <summary>
     /// フィード項目が検索条件に一致するかを判定する。
-    /// タイトルと URL をまとめて検索対象にし、従来実装と同じ使い勝手を維持する。
+    /// タイトル文字列だけを検索対象にし、本文に近い情報で判定する。
     /// </summary>
     private static bool IsMatchTarget(FeedItem item, MatchConfig match)
     {
@@ -225,32 +235,33 @@ public sealed class FeedProcessor
     }
 
     /// <summary>
-    /// リダイレクトで最終 URL が変わった場合、エラー通知チャンネルへ警告を送る。
-    /// 取得先変更は運用上の見直し対象なので、通常通知とは分けて扱う。
+    /// リダイレクトで最終 URL が変わった場合の警告通知を組み立てる。
+    /// 実送信は MonitorRunner 側でまとめて行うため、ここでは送信予定として返す。
     /// </summary>
-    private async Task NotifyUrlChangedAsync(
+    private IReadOnlyList<PendingNotification> BuildUrlChangedNotifications(
         FeedConfig config,
         string finalUrl,
-        string errorWebhookUrl,
-        bool dryRun,
-        CancellationToken cancellationToken)
+        string errorWebhookUrl)
     {
         if (string.Equals(config.Url, finalUrl, StringComparison.OrdinalIgnoreCase))
         {
-            return;
-        }
-
-        if (dryRun)
-        {
-            return;
+            return [];
         }
 
         var messages = _messageBuilder.BuildUrlChangedMessages(config.Name, config.Url, finalUrl);
-        var notified = await _discordNotifier.SendMessagesAsync(errorWebhookUrl, messages, cancellationToken).ConfigureAwait(false);
-        if (!notified)
+        if (messages.Count == 0)
         {
-            throw new InvalidOperationException($"URL 変更警告の送信に失敗しました。feedId={config.Id}");
+            return [];
         }
+
+        return
+        [
+            new PendingNotification
+            {
+                WebhookUrl = errorWebhookUrl,
+                Messages = messages
+            }
+        ];
     }
 
     /// <summary>

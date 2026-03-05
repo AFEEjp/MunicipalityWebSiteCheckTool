@@ -7,6 +7,8 @@ namespace MunicipalityWebSiteCheckTool.Monitoring;
 
 public sealed class MonitorRunner
 {
+    private const int FeedMaxDegreeOfParallelism = 4;
+
     private readonly FeedProcessor _feedProcessor;
     private readonly PageProcessor _pageProcessor;
     private readonly MessageBuilder _messageBuilder;
@@ -51,7 +53,7 @@ public sealed class MonitorRunner
 
     /// <summary>
     /// feed モードを実行する。
-    /// cadence で絞り込んだ有効フィードだけを順次処理し、最後にエラー要約も送る。
+    /// cadence で絞り込んだ有効フィードを最大 4 件並列で処理し、通知は最後にまとめて送る。
     /// </summary>
     private async Task<int> RunFeedModeAsync(
         RunOptions options,
@@ -66,24 +68,56 @@ public sealed class MonitorRunner
                            string.Equals(feed.Cadence, options.Cadence, StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
+        Console.WriteLine($"[feed] 実行対象件数: {targets.Length}");
+
         var errors = new List<string>();
         var hasFailure = false;
+        var results = new List<FeedProcessResult>(targets.Length);
 
-        foreach (var feed in targets)
+        await Parallel.ForEachAsync(
+                targets,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = FeedMaxDegreeOfParallelism,
+                    CancellationToken = cancellationToken
+                },
+                async (feed, token) =>
+                {
+                    var result = await _feedProcessor.ProcessAsync(
+                                     feed,
+                                     appOptions.DiscordWebhookError,
+                                     webhookKey => ResolveFeedWebhookUrl(appOptions, webhookKey),
+                                     token)
+                                 .ConfigureAwait(false);
+
+                    lock (results)
+                    {
+                        results.Add(result);
+                    }
+                })
+            .ConfigureAwait(false);
+
+        foreach (var result in results.OrderBy(result => result.FeedName, StringComparer.OrdinalIgnoreCase))
         {
-            var result = await _feedProcessor.ProcessAsync(
-                             feed,
-                             appOptions.DiscordWebhookError,
-                             webhookKey => ResolveFeedWebhookUrl(appOptions, webhookKey),
-                             options.DryRun,
-                             cancellationToken)
-                         .ConfigureAwait(false);
-
+            WriteFeedResultLog(result);
             if (!result.Succeeded)
             {
                 hasFailure = true;
                 errors.Add($"feed:{result.FeedId}: {result.ErrorMessage}");
             }
+        }
+
+        var pendingNotifications = results
+            .Where(static result => result.Succeeded)
+            .SelectMany(static result => result.PendingNotifications)
+            .ToArray();
+
+        var notificationErrors = await SendPendingNotificationsAsync(pendingNotifications, options.DryRun, cancellationToken)
+            .ConfigureAwait(false);
+        if (notificationErrors.Count > 0)
+        {
+            hasFailure = true;
+            errors.AddRange(notificationErrors);
         }
 
         await NotifyErrorSummaryAsync(appOptions.DiscordWebhookError, errors, options.DryRun, cancellationToken).ConfigureAwait(false);
@@ -157,6 +191,85 @@ public sealed class MonitorRunner
         }
 
         return value;
+    }
+
+    /// <summary>
+    /// feed 処理結果を GitHub Actions のログへ出力する。
+    /// 監視対象名、検出件数、検出したタイトルと URL が追える形式で記録する。
+    /// </summary>
+    private static void WriteFeedResultLog(FeedProcessResult result)
+    {
+        if (!result.Succeeded)
+        {
+            Console.WriteLine($"[feed:error] {result.FeedName} ({result.FeedId}) {result.ErrorMessage}");
+            return;
+        }
+
+        if (result.SkippedByCircuitBreaker)
+        {
+            Console.WriteLine($"[feed:skip] {result.FeedName} ({result.FeedId}) サーキットブレーカー中");
+            return;
+        }
+
+        Console.WriteLine(
+            $"[feed:done] {result.FeedName} ({result.FeedId}) new={result.NewItemCount} titleChanged={result.TitleChangedCount}");
+
+        foreach (var item in result.NewItems)
+        {
+            Console.WriteLine(
+                $"[feed:new] {result.FeedName} title={item.Title ?? "(タイトルなし)"} url={item.Url ?? "(URLなし)"}");
+        }
+
+        foreach (var changed in result.TitleChangedItems)
+        {
+            Console.WriteLine(
+                $"[feed:title-changed] {result.FeedName} old={changed.OldTitle ?? "(なし)"} new={changed.NewTitle ?? "(なし)"} url={changed.Url ?? "(URLなし)"}");
+        }
+    }
+
+    /// <summary>
+    /// 送信予定の通知を Webhook ごとにまとめて送る。
+    /// 投稿間隔は DiscordNotifier 側に任せ、ここでは送信失敗を収集して戻す。
+    /// </summary>
+    private async Task<IReadOnlyList<string>> SendPendingNotificationsAsync(
+        IReadOnlyList<PendingNotification> notifications,
+        bool dryRun,
+        CancellationToken cancellationToken)
+    {
+        if (notifications.Count == 0)
+        {
+            return [];
+        }
+
+        if (dryRun)
+        {
+            Console.WriteLine($"[feed:dry-run] 送信予定メッセージ数: {notifications.Sum(static n => n.Messages.Count)}");
+            return [];
+        }
+
+        var errors = new List<string>();
+        var groupedByWebhook = notifications
+            .GroupBy(static notification => notification.WebhookUrl, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in groupedByWebhook)
+        {
+            var messages = group
+                .SelectMany(static notification => notification.Messages)
+                .Where(static message => !string.IsNullOrWhiteSpace(message))
+                .ToArray();
+            if (messages.Length == 0)
+            {
+                continue;
+            }
+
+            var notified = await _discordNotifier.SendMessagesAsync(group.Key, messages, cancellationToken).ConfigureAwait(false);
+            if (!notified)
+            {
+                errors.Add($"notify:{group.Key}: 通知送信に失敗しました。");
+            }
+        }
+
+        return errors;
     }
 
     /// <summary>
