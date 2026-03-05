@@ -183,6 +183,8 @@ internal static class ProgramEntry
 
         services.AddSingleton<IFeedSource, RssFeedSource>();
         services.AddSingleton<IFeedSource, HtmlFeedSource>();
+        services.AddSingleton<IFeedSource, BrowserFeedSource>();
+        services.AddSingleton<IBrowserFeedHttpClient, BrowserFeedHttpClient>();
 
         services
             .AddHttpClient<IFeedHttpClient, FeedHttpClient>(client =>

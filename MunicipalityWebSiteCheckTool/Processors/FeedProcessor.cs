@@ -14,22 +14,26 @@ public sealed class FeedProcessor
     private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(30);
 
     private readonly IFeedHttpClient _feedHttpClient;
+    private readonly IBrowserFeedHttpClient _browserFeedHttpClient;
     private readonly StateStore _stateStore;
     private readonly MessageBuilder _messageBuilder;
     private readonly IReadOnlyDictionary<string, IFeedSource> _feedSources;
 
     public FeedProcessor(
         IFeedHttpClient feedHttpClient,
+        IBrowserFeedHttpClient browserFeedHttpClient,
         StateStore stateStore,
         MessageBuilder messageBuilder,
         IEnumerable<IFeedSource> feedSources)
     {
         ArgumentNullException.ThrowIfNull(feedHttpClient);
+        ArgumentNullException.ThrowIfNull(browserFeedHttpClient);
         ArgumentNullException.ThrowIfNull(stateStore);
         ArgumentNullException.ThrowIfNull(messageBuilder);
         ArgumentNullException.ThrowIfNull(feedSources);
 
         _feedHttpClient = feedHttpClient;
+        _browserFeedHttpClient = browserFeedHttpClient;
         _stateStore = stateStore;
         _messageBuilder = messageBuilder;
         _feedSources = feedSources.ToDictionary(source => source.Type, StringComparer.OrdinalIgnoreCase);
@@ -68,7 +72,7 @@ public sealed class FeedProcessor
 
         try
         {
-            var fetchResult = await _feedHttpClient.FetchAsync(config.Url, state.HttpCache, cancellationToken).ConfigureAwait(false);
+            var fetchResult = await FetchFeedContentAsync(config, state, cancellationToken).ConfigureAwait(false);
             var updatedState = state with
             {
                 FeedUrl = fetchResult.FinalUrl,
@@ -268,6 +272,23 @@ public sealed class FeedProcessor
                 Messages = messages
             }
         ];
+    }
+
+    /// <summary>
+    /// フィード種別に応じて本文取得手段を切り替える。
+    /// browser モードのみ Playwright 取得を使い、それ以外は従来の HTTP 取得を使う。
+    /// </summary>
+    private async Task<FetchResult> FetchFeedContentAsync(
+        FeedConfig config,
+        FeedState state,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(config.Type, "browser", StringComparison.OrdinalIgnoreCase))
+        {
+            return await _browserFeedHttpClient.FetchAsync(config, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await _feedHttpClient.FetchAsync(config.Url, state.HttpCache, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

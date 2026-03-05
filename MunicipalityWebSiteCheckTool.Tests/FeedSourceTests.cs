@@ -98,7 +98,73 @@ public sealed class FeedSourceTests
         Assert.Equal("詳細ページ", items[0].Title);
     }
 
-    private static FeedConfig CreateFeedConfig(string type)
+    [Fact]
+    public void BrowserFeedSource_ParseItems_UseConfiguredSelectors()
+    {
+        // browser モードの selector 設定で、タイトルと URL を抽出できることを確認する。
+        const string content = """
+            <html>
+              <body>
+                <ul class="news-list">
+                  <li class="row">
+                    <a class="item" href="/notice/1">
+                      <span class="title">意見募集 条例案</span>
+                    </a>
+                  </li>
+                </ul>
+              </body>
+            </html>
+            """;
+
+        var source = new BrowserFeedSource();
+        var items = source.ParseItems(
+            CreateFeedConfig(
+                "browser",
+                new BrowserFeedConfig
+                {
+                    WaitForSelector = ".news-list",
+                    ItemSelector = ".news-list a.item",
+                    TitleSelector = ".title"
+                }),
+            content,
+            "https://example.com/list");
+
+        var item = Assert.Single(items);
+        Assert.Equal("https://example.com/notice/1", item.Url);
+        Assert.Equal("意見募集 条例案", item.Title);
+    }
+
+    [Fact]
+    public void BrowserFeedSource_ParseItems_FallbackToAnchorScanWhenSelectorsMissing()
+    {
+        // browser 設定が未指定でも、既定値(body/a)でリンク抽出できることを確認する。
+        const string content = """
+            <html>
+              <body>
+                <a href="/notice/1">意見募集</a>
+              </body>
+            </html>
+            """;
+
+        var source = new BrowserFeedSource();
+        var items = source.ParseItems(
+            CreateFeedConfig(
+                "browser",
+                new BrowserFeedConfig
+                {
+                    WaitForSelector = "",
+                    ItemSelector = "",
+                    TitleSelector = null
+                }),
+            content,
+            "https://example.com/list");
+
+        var item = Assert.Single(items);
+        Assert.Equal("https://example.com/notice/1", item.Url);
+        Assert.Equal("意見募集", item.Title);
+    }
+
+    private static FeedConfig CreateFeedConfig(string type, BrowserFeedConfig? browser = null)
     {
         return new FeedConfig
         {
@@ -106,6 +172,7 @@ public sealed class FeedSourceTests
             Name = "test",
             Url = "https://example.com",
             Type = type,
+            Browser = browser,
             Match = new MatchConfig
             {
                 First = [],

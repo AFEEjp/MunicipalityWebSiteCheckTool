@@ -19,6 +19,8 @@ public record FeedConfig
     public string? WebhookKey { get; init; }
 
     public FeedStateConfig? State { get; init; }
+
+    public BrowserFeedConfig? Browser { get; init; }
 }
 
 public record FeedStateConfig
@@ -29,4 +31,19 @@ public record FeedStateConfig
 public record FeedSettingsConfig
 {
     public MatchConfig? DefaultMatch { get; init; }
+}
+
+public record BrowserFeedConfig
+{
+    public string WaitForSelector { get; init; } = "body";
+
+    public string ItemSelector { get; init; } = "a";
+
+    public string? TitleSelector { get; init; }
+
+    public string LinkAttribute { get; init; } = "href";
+
+    public string WaitUntil { get; init; } = "networkidle";
+
+    public int TimeoutMs { get; init; } = 15000;
 }
