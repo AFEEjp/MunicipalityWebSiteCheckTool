@@ -8,7 +8,7 @@ public sealed class DiscordNotifier(IDiscordHttpClient discordHttpClient)
 {
     private const int MaxRetryCount = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan MessageInterval = TimeSpan.FromMilliseconds(750);
+    private static readonly TimeSpan MessageInterval = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>
     /// 分割済みのメッセージ群を Discord Webhook へ順番に送信する。

@@ -41,29 +41,24 @@ public sealed class ProcessorTests : IDisposable
             });
 
         using var httpClient = new HttpClient(handler);
-        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var stateStore = CreateStateStore();
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
             stateStore,
             new MessageBuilder(),
-            new DiscordNotifier(new DiscordHttpClient(discordClient)),
             [new RssFeedSource(), new HtmlFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
             "https://example.invalid/error",
             _ => "https://example.invalid/pubcom",
-            dryRun: true,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(1, result.NewItemCount);
-
-        var state = await stateStore.LoadAsync("feed-test", CancellationToken.None);
-        Assert.NotNull(state);
-        Assert.Single(state!.Seen);
-        Assert.Equal("意見募集 条例案", state.Seen[0].Title);
+        Assert.NotNull(result.CandidateState);
+        Assert.Single(result.CandidateState!.Seen);
+        Assert.Equal("意見募集 条例案", result.CandidateState.Seen[0].Title);
     }
 
     [Fact]
@@ -72,7 +67,6 @@ public sealed class ProcessorTests : IDisposable
         // サーキットブレーカー中は HTTP 取得せずにスキップ扱いになることを確認する。
         var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("呼ばれない想定"));
         using var httpClient = new HttpClient(handler);
-        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var stateStore = CreateStateStore();
         await stateStore.SaveAsync("feed-test", new Domain.FeedState
         {
@@ -86,14 +80,12 @@ public sealed class ProcessorTests : IDisposable
             new FeedHttpClient(httpClient),
             stateStore,
             new MessageBuilder(),
-            new DiscordNotifier(new DiscordHttpClient(discordClient)),
             [new RssFeedSource(), new HtmlFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
             "https://example.invalid/error",
             _ => "https://example.invalid/pubcom",
-            dryRun: true,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -121,28 +113,23 @@ public sealed class ProcessorTests : IDisposable
             });
 
         using var httpClient = new HttpClient(handler);
-        using var discordClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var stateStore = CreateStateStore();
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
             stateStore,
             new MessageBuilder(),
-            new DiscordNotifier(new DiscordHttpClient(discordClient)),
             [new RssFeedSource(), new HtmlFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
             "https://example.invalid/error",
             _ => "https://example.invalid/pubcom",
-            dryRun: true,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.NewItemCount);
-
-        var state = await stateStore.LoadAsync("feed-test", CancellationToken.None);
-        Assert.NotNull(state);
-        Assert.Empty(state!.Seen);
+        Assert.NotNull(result.CandidateState);
+        Assert.Empty(result.CandidateState!.Seen);
     }
 
     [Fact]
