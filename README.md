@@ -25,6 +25,13 @@
 
 設定リポジトリを同じ親ディレクトリに clone している場合の例です。
 
+`type: browser` の feed を監視する場合は、先に Playwright Chromium をインストールしてください。
+
+```powershell
+dotnet build .\MunicipalityWebSiteCheckTool\MunicipalityWebSiteCheckTool.csproj -c Debug
+pwsh .\MunicipalityWebSiteCheckTool\bin\Debug\net10.0\playwright.ps1 install chromium
+```
+
 feed モード:
 
 ```powershell

@@ -44,9 +44,10 @@ public sealed class ProcessorTests : IDisposable
         var stateStore = CreateStateStore();
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
             stateStore,
             new MessageBuilder(),
-            [new RssFeedSource(), new HtmlFeedSource()]);
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
@@ -78,9 +79,10 @@ public sealed class ProcessorTests : IDisposable
 
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
             stateStore,
             new MessageBuilder(),
-            [new RssFeedSource(), new HtmlFeedSource()]);
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
@@ -116,9 +118,10 @@ public sealed class ProcessorTests : IDisposable
         var stateStore = CreateStateStore();
         var processor = new FeedProcessor(
             new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
             stateStore,
             new MessageBuilder(),
-            [new RssFeedSource(), new HtmlFeedSource()]);
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
 
         var result = await processor.ProcessAsync(
             CreateFeedConfig(),
@@ -423,6 +426,17 @@ public sealed class ProcessorTests : IDisposable
         {
             CallCount++;
             return Task.FromResult(responder(request));
+        }
+    }
+
+    private sealed class StubBrowserFeedHttpClient : IBrowserFeedHttpClient
+    {
+        /// <summary>
+        /// browser モードを使わないテストで誤って呼ばれた場合に即検知する。
+        /// </summary>
+        public Task<Domain.FetchResult> FetchAsync(FeedConfig config, CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("このテストでは browser 取得は呼ばれない想定です。");
         }
     }
 }

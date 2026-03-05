@@ -5,6 +5,7 @@ using MunicipalityWebSiteCheckTool.Domain;
 namespace MunicipalityWebSiteCheckTool.Serialization;
 
 [JsonSerializable(typeof(FeedConfig))]
+[JsonSerializable(typeof(BrowserFeedConfig))]
 [JsonSerializable(typeof(FeedSettingsConfig))]
 [JsonSerializable(typeof(FeedState))]
 [JsonSerializable(typeof(PageConfig))]
