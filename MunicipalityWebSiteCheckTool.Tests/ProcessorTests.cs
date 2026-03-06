@@ -136,6 +136,116 @@ public sealed class ProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task FeedProcessor_ProcessAsync_RssHtmlMismatch_NotifyAfterThresholdAndSuppressAfterNotify()
+    {
+        // rss 指定で HTML 応答が続く場合、しきい値到達で通知し、その後は一定回数まで再通知しないことを確認する。
+        var handler = new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <html>
+                      <head><meta charset="utf-8"></head>
+                      <body>
+                        <br>
+                      </body>
+                    </html>
+                    """, Encoding.UTF8, "text/html")
+            });
+
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var notificationsPerRun = new List<int>();
+        for (var index = 0; index < 4; index++)
+        {
+            var result = await processor.ProcessAsync(
+                CreateFeedConfig(),
+                "https://example.invalid/error",
+                _ => "https://example.invalid/pubcom",
+                CancellationToken.None);
+
+            Assert.True(result.Succeeded);
+            Assert.NotNull(result.CandidateState);
+            notificationsPerRun.Add(result.PendingNotifications.Count);
+            await stateStore.SaveAsync("feed-test", result.CandidateState!, CancellationToken.None);
+        }
+
+        Assert.Equal([0, 0, 1, 0], notificationsPerRun);
+    }
+
+    [Fact]
+    public async Task FeedProcessor_ProcessAsync_RssHtmlMismatch_ResetAfterValidRss()
+    {
+        // HTML 応答が続いた後でも、正常RSSが1回取れれば連続カウントがリセットされることを確認する。
+        var responses = new Queue<HttpResponseMessage>(
+        [
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("<html><body><br></body></html>", Encoding.UTF8, "text/html")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <rss version="2.0">
+                      <channel>
+                        <item>
+                          <title>意見募集 条例案</title>
+                          <link>https://example.com/item1</link>
+                        </item>
+                      </channel>
+                    </rss>
+                    """, Encoding.UTF8, "application/xml")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("<html><body><br></body></html>", Encoding.UTF8, "text/html")
+            }
+        ]);
+
+        var handler = new StubHttpMessageHandler(_ => responses.Dequeue());
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var first = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+        await stateStore.SaveAsync("feed-test", first.CandidateState!, CancellationToken.None);
+
+        var second = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+        await stateStore.SaveAsync("feed-test", second.CandidateState!, CancellationToken.None);
+
+        var third = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+
+        Assert.Empty(first.PendingNotifications);
+        Assert.True(second.PendingNotifications.Count >= 1);
+        Assert.Empty(third.PendingNotifications);
+        Assert.NotNull(third.CandidateState);
+        Assert.Equal(1, third.CandidateState!.RssHtmlMismatchCount);
+    }
+
+    [Fact]
     public async Task PageProcessor_ProcessAsync_DetectContentChange()
     {
         // 本文が変わった場合に changed=true で state が更新されることを確認する。

@@ -18,6 +18,8 @@ public sealed record FeedProcessResult
 
     public string? ErrorMessage { get; init; }
 
+    public string? WarningMessage { get; init; }
+
     public IReadOnlyList<FeedDetectedItem> NewItems { get; init; } = [];
 
     public IReadOnlyList<FeedTitleChangedItem> TitleChangedItems { get; init; } = [];

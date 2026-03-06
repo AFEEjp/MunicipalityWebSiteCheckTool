@@ -23,6 +23,12 @@ public record FeedState
 
     public DateTimeOffset? CircuitOpenUntil { get; init; }
 
+    public int RssHtmlMismatchCount { get; init; }
+
+    public int RssHtmlLastNotifiedCount { get; init; }
+
+    public DateTimeOffset? RssHtmlLastNotifiedUtc { get; init; }
+
     public static FeedState CreateNew(FeedConfig config) => new()
     {
         FeedUrl = config.Url,

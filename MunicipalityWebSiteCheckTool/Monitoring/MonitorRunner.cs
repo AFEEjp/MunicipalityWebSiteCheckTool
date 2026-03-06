@@ -227,6 +227,11 @@ public sealed class MonitorRunner
             return;
         }
 
+        if (!string.IsNullOrWhiteSpace(result.WarningMessage))
+        {
+            Console.WriteLine($"[feed:warn] {result.FeedName} ({result.FeedId}) {result.WarningMessage}");
+        }
+
         Console.WriteLine(
             $"[feed:done] {result.FeedName} ({result.FeedId}) new={result.NewItemCount} titleChanged={result.TitleChangedCount}");
 

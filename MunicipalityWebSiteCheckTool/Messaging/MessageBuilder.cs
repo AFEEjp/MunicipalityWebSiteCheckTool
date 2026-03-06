@@ -159,6 +159,31 @@ public sealed class MessageBuilder
     }
 
     /// <summary>
+    /// RSS 想定 URL で HTML 応答が続く異常を通知する。
+    /// 単発ではなく連続回数がしきい値を超えたときにだけ呼ばれる想定。
+    /// </summary>
+    public IReadOnlyList<string> BuildRssHtmlMismatchMessages(
+        string feedName,
+        string feedUrl,
+        int mismatchCount,
+        int notifyThreshold)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedUrl);
+
+        var builder = new StringBuilder();
+        builder.AppendLine("[RSS取得異常]");
+        builder.AppendLine($"対象: {feedName}");
+        builder.AppendLine($"URL: {feedUrl}");
+        builder.AppendLine($"内容: RSS想定URLからHTML応答を検出");
+        builder.AppendLine($"連続検知回数: {mismatchCount} 回");
+        builder.AppendLine($"通知しきい値: {notifyThreshold} 回");
+        builder.AppendLine("サーバー側の一時障害、メンテナンス画面、WAF/CDN応答置換の可能性があります。");
+
+        return SplitMessage(builder.ToString());
+    }
+
+    /// <summary>
     /// Discord 送信しやすいよう、長文を一定文字数ごとに分割する。
     /// 改行を優先しつつ、長すぎる 1 行だけは強制分割する。
     /// </summary>

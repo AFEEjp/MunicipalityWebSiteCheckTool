@@ -58,6 +58,25 @@ public sealed class FeedSourceTests
     }
 
     [Fact]
+    public void RssFeedSource_ParseItems_ThrowWhenContentIsHtml()
+    {
+        // rss 指定で HTML が返るケースは、Processor 側で連続検知するため専用例外になることを確認する。
+        const string content = """
+            <html>
+              <head><meta charset="utf-8"></head>
+              <body>
+                <a href="/notice/1">意見募集</a>
+              </body>
+            </html>
+            """;
+
+        var source = new RssFeedSource();
+        var ex = Assert.Throws<RssUnexpectedHtmlException>(() =>
+            source.ParseItems(CreateFeedConfig("rss"), content, "https://example.com/feed"));
+        Assert.Contains("feedId=test", ex.Message);
+    }
+
+    [Fact]
     public void HtmlFeedSource_ParseItems_ReadAnchorsAndSkipMailto()
     {
         // a タグを抽出し、mailto は除外することを確認する。

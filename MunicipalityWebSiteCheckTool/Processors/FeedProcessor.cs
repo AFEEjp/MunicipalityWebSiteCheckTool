@@ -12,6 +12,8 @@ public sealed class FeedProcessor
 {
     private const int CircuitOpenThreshold = 3;
     private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(30);
+    private const int RssHtmlNotifyThreshold = 3;
+    private const int RssHtmlNotifySuppressCount = 3;
 
     private readonly IFeedHttpClient _feedHttpClient;
     private readonly IBrowserFeedHttpClient _browserFeedHttpClient;
@@ -80,7 +82,10 @@ public sealed class FeedProcessor
                 UpdatedUtc = DateTimeOffset.UtcNow,
                 HttpCache = fetchResult.NewCache,
                 ConsecutiveFailures = 0,
-                CircuitOpenUntil = null
+                CircuitOpenUntil = null,
+                RssHtmlMismatchCount = 0,
+                RssHtmlLastNotifiedCount = 0,
+                RssHtmlLastNotifiedUtc = null
             };
 
             var pendingNotifications = new List<PendingNotification>();
@@ -186,6 +191,40 @@ public sealed class FeedProcessor
                 TitleChangedItems = titleChangedItems,
                 PendingNotifications = pendingNotifications,
                 BaseState = updatedState,
+                    CandidateState = candidateState
+            };
+        }
+        catch (RssUnexpectedHtmlException)
+        {
+            var mismatchCount = state.RssHtmlMismatchCount + 1;
+            var shouldNotify = mismatchCount >= RssHtmlNotifyThreshold &&
+                               (state.RssHtmlLastNotifiedCount <= 0 ||
+                                mismatchCount - state.RssHtmlLastNotifiedCount >= RssHtmlNotifySuppressCount);
+
+            var pendingNotifications = shouldNotify
+                ? BuildRssHtmlMismatchNotifications(config, errorWebhookUrl, mismatchCount)
+                : [];
+
+            var candidateState = state with
+            {
+                FeedUrl = config.Url,
+                FeedType = config.Type,
+                UpdatedUtc = DateTimeOffset.UtcNow,
+                RssHtmlMismatchCount = mismatchCount,
+                RssHtmlLastNotifiedCount = shouldNotify ? mismatchCount : state.RssHtmlLastNotifiedCount,
+                RssHtmlLastNotifiedUtc = shouldNotify ? DateTimeOffset.UtcNow : state.RssHtmlLastNotifiedUtc
+            };
+
+            return new FeedProcessResult
+            {
+                FeedId = config.Id,
+                FeedName = config.Name,
+                Succeeded = true,
+                WarningMessage = shouldNotify
+                    ? $"rss-html-mismatch: 連続 {mismatchCount} 回検知。通知送信対象。"
+                    : $"rss-html-mismatch: 連続 {mismatchCount} 回検知。通知は抑制中。",
+                PendingNotifications = pendingNotifications,
+                BaseState = candidateState,
                 CandidateState = candidateState
             };
         }
@@ -202,6 +241,36 @@ public sealed class FeedProcessor
                 ErrorMessage = ex.Message
             };
         }
+    }
+
+    /// <summary>
+    /// RSS 想定 URL で HTML 応答が続いた場合の通知メッセージを作る。
+    /// 通知先はエラー Webhook に固定し、運用者が障害として確認できるようにする。
+    /// </summary>
+    private IReadOnlyList<PendingNotification> BuildRssHtmlMismatchNotifications(
+        FeedConfig config,
+        string errorWebhookUrl,
+        int mismatchCount)
+    {
+        var messages = _messageBuilder.BuildRssHtmlMismatchMessages(
+            config.Name,
+            config.Url,
+            mismatchCount,
+            RssHtmlNotifyThreshold);
+        if (messages.Count == 0)
+        {
+            return [];
+        }
+
+        return
+        [
+            new PendingNotification
+            {
+                FeedId = config.Id,
+                WebhookUrl = errorWebhookUrl,
+                Messages = messages
+            }
+        ];
     }
 
     /// <summary>

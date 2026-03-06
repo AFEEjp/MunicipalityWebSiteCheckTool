@@ -61,4 +61,23 @@ public sealed class MessageBuilderTests
         Assert.True(chunks.Count >= 3);
         Assert.All(chunks, chunk => Assert.True(chunk.Length <= 10));
     }
+
+    [Fact]
+    public void BuildRssHtmlMismatchMessages_IncludeCountAndThreshold()
+    {
+        // RSS想定URLでHTML応答が続いた通知文に、回数としきい値が含まれることを確認する。
+        var builder = new MessageBuilder();
+
+        var messages = builder.BuildRssHtmlMismatchMessages(
+            "サンプル自治体",
+            "https://example.com/feed.xml",
+            mismatchCount: 4,
+            notifyThreshold: 3);
+
+        var message = Assert.Single(messages);
+        Assert.Contains("[RSS取得異常]", message);
+        Assert.Contains("対象: サンプル自治体", message);
+        Assert.Contains("連続検知回数: 4 回", message);
+        Assert.Contains("通知しきい値: 3 回", message);
+    }
 }

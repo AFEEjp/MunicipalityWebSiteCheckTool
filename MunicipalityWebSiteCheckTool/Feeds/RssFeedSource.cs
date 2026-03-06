@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Xml;
 using MunicipalityWebSiteCheckTool.Config;
 using MunicipalityWebSiteCheckTool.Domain;
 using MunicipalityWebSiteCheckTool.Processing;
@@ -18,7 +19,21 @@ public sealed class RssFeedSource : IFeedSource
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestUrl);
 
-        var document = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+        XDocument document;
+        try
+        {
+            document = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+        }
+        catch (XmlException ex) when (IsLikelyHtmlContent(content))
+        {
+            // RSS 想定で HTML が返る場合は、呼び出し側で連続発生管理と抑制通知を行う。
+            throw new RssUnexpectedHtmlException(config.Id, ex);
+        }
+        catch (XmlException ex)
+        {
+            throw new InvalidOperationException($"RSS/Atom XML の解析に失敗しました。feedId={config.Id}", ex);
+        }
+
         var baseUri = CreateBaseUri(requestUrl);
         var rootName = document.Root?.Name.LocalName;
 
@@ -282,5 +297,22 @@ public sealed class RssFeedSource : IFeedSource
         return Uri.TryCreate(requestUrl, UriKind.Absolute, out var uri)
             ? uri
             : null;
+    }
+
+    /// <summary>
+    /// 返却本文が HTML らしいかを軽く判定する。
+    /// XML 厳密解析が失敗した際、HTML 誤配信へのフォールバック可否を決めるために使う。
+    /// </summary>
+    private static bool IsLikelyHtmlContent(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        return content.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
+               content.Contains("<body", StringComparison.OrdinalIgnoreCase) ||
+               content.Contains("<meta", StringComparison.OrdinalIgnoreCase) ||
+               content.Contains("<!doctype html", StringComparison.OrdinalIgnoreCase);
     }
 }
