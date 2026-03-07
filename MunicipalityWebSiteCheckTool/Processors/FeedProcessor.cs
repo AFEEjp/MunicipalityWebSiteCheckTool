@@ -85,7 +85,9 @@ public sealed class FeedProcessor
                 CircuitOpenUntil = null,
                 RssHtmlMismatchCount = 0,
                 RssHtmlLastNotifiedCount = 0,
-                RssHtmlLastNotifiedUtc = null
+                RssHtmlLastNotifiedUtc = null,
+                ConsecutiveFailureLastNotifiedCount = 0,
+                ConsecutiveFailureLastNotifiedUtc = null
             };
 
             var pendingNotifications = new List<PendingNotification>();
@@ -230,6 +232,41 @@ public sealed class FeedProcessor
         }
         catch (Exception ex)
         {
+            if (IsTransientFeedError(ex))
+            {
+                var transientFailedState = BuildFailureState(config, state);
+                var shouldNotify = transientFailedState.ConsecutiveFailures >= CircuitOpenThreshold &&
+                                   (state.ConsecutiveFailureLastNotifiedCount <= 0 ||
+                                    transientFailedState.ConsecutiveFailures - state.ConsecutiveFailureLastNotifiedCount >= CircuitOpenThreshold);
+
+                var candidateState = transientFailedState with
+                {
+                    ConsecutiveFailureLastNotifiedCount = shouldNotify
+                        ? transientFailedState.ConsecutiveFailures
+                        : state.ConsecutiveFailureLastNotifiedCount,
+                    ConsecutiveFailureLastNotifiedUtc = shouldNotify
+                        ? DateTimeOffset.UtcNow
+                        : state.ConsecutiveFailureLastNotifiedUtc
+                };
+
+                var pendingNotifications = shouldNotify
+                    ? BuildConsecutiveFailureNotifications(config, errorWebhookUrl, candidateState.ConsecutiveFailures, ex.Message)
+                    : [];
+
+                return new FeedProcessResult
+                {
+                    FeedId = config.Id,
+                    FeedName = config.Name,
+                    Succeeded = true,
+                    WarningMessage = shouldNotify
+                        ? $"feed-error: 連続 {candidateState.ConsecutiveFailures} 回失敗。通知送信対象。"
+                        : $"feed-error: 連続 {candidateState.ConsecutiveFailures} 回失敗。通知は抑制中。",
+                    PendingNotifications = pendingNotifications,
+                    BaseState = candidateState,
+                    CandidateState = candidateState
+                };
+            }
+
             var failedState = BuildFailureState(config, state);
             await _stateStore.SaveAsync(config.Id, failedState, cancellationToken).ConfigureAwait(false);
 
@@ -241,6 +278,15 @@ public sealed class FeedProcessor
                 ErrorMessage = ex.Message
             };
         }
+    }
+
+    /// <summary>
+    /// 一時障害として扱う例外かを判定する。
+    /// 通信失敗やタイムアウトは連続回数管理の対象にし、単発では通知しない。
+    /// </summary>
+    private static bool IsTransientFeedError(Exception ex)
+    {
+        return ex is HttpRequestException or TimeoutException or TaskCanceledException;
     }
 
     /// <summary>
@@ -257,6 +303,39 @@ public sealed class FeedProcessor
             config.Url,
             mismatchCount,
             RssHtmlNotifyThreshold);
+        if (messages.Count == 0)
+        {
+            return [];
+        }
+
+        return
+        [
+            new PendingNotification
+            {
+                FeedId = config.Id,
+                WebhookUrl = errorWebhookUrl,
+                Messages = messages
+            }
+        ];
+    }
+
+    /// <summary>
+    /// 通信系の連続失敗通知を作る。
+    /// しきい値到達時のみ呼ばれる想定で、通知先はエラー Webhook に固定する。
+    /// </summary>
+    private IReadOnlyList<PendingNotification> BuildConsecutiveFailureNotifications(
+        FeedConfig config,
+        string errorWebhookUrl,
+        int failureCount,
+        string errorMessage)
+    {
+        var messages = _messageBuilder.BuildFeedConsecutiveFailureMessages(
+            config.Name,
+            config.Id,
+            config.Url,
+            failureCount,
+            CircuitOpenThreshold,
+            errorMessage);
         if (messages.Count == 0)
         {
             return [];

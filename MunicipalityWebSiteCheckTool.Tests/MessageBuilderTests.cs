@@ -80,4 +80,24 @@ public sealed class MessageBuilderTests
         Assert.Contains("連続検知回数: 4 回", message);
         Assert.Contains("通知しきい値: 3 回", message);
     }
+
+    [Fact]
+    public void BuildFeedConsecutiveFailureMessages_IncludeNameAndId()
+    {
+        // 連続失敗通知に自治体名とIDを含め、調査対象を判別できることを確認する。
+        var builder = new MessageBuilder();
+
+        var messages = builder.BuildFeedConsecutiveFailureMessages(
+            "東京都",
+            "tokyo",
+            "https://example.com/feed.xml",
+            failureCount: 5,
+            notifyThreshold: 3,
+            errorMessage: "The request timed out.");
+
+        var message = Assert.Single(messages);
+        Assert.Contains("対象: 東京都 (tokyo)", message);
+        Assert.Contains("連続失敗回数: 5 回", message);
+        Assert.Contains("最新エラー: The request timed out.", message);
+    }
 }

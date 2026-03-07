@@ -184,6 +184,34 @@ public sealed class MessageBuilder
     }
 
     /// <summary>
+    /// 通信系の連続失敗（timeout / 4xx / 5xx など）をしきい値到達時に通知する。
+    /// 単発障害では通知せず、運用対応が必要な継続障害のみを通知対象にする。
+    /// </summary>
+    public IReadOnlyList<string> BuildFeedConsecutiveFailureMessages(
+        string feedName,
+        string feedId,
+        string feedUrl,
+        int failureCount,
+        int notifyThreshold,
+        string errorMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+
+        var builder = new StringBuilder();
+        builder.AppendLine("[フィード取得連続失敗]");
+        builder.AppendLine($"対象: {feedName} ({feedId})");
+        builder.AppendLine($"URL: {feedUrl}");
+        builder.AppendLine($"連続失敗回数: {failureCount} 回");
+        builder.AppendLine($"通知しきい値: {notifyThreshold} 回");
+        builder.AppendLine($"最新エラー: {NormalizeLine(errorMessage) ?? errorMessage}");
+
+        return SplitMessage(builder.ToString());
+    }
+
+    /// <summary>
     /// Discord 送信しやすいよう、長文を一定文字数ごとに分割する。
     /// 改行を優先しつつ、長すぎる 1 行だけは強制分割する。
     /// </summary>

@@ -171,9 +171,11 @@ public sealed class ProcessorTests : IDisposable
                 CancellationToken.None);
 
             Assert.True(result.Succeeded);
-            Assert.NotNull(result.CandidateState);
             notificationsPerRun.Add(result.PendingNotifications.Count);
-            await stateStore.SaveAsync("feed-test", result.CandidateState!, CancellationToken.None);
+            if (result.CandidateState is not null)
+            {
+                await stateStore.SaveAsync("feed-test", result.CandidateState, CancellationToken.None);
+            }
         }
 
         Assert.Equal([0, 0, 1, 0], notificationsPerRun);
@@ -243,6 +245,40 @@ public sealed class ProcessorTests : IDisposable
         Assert.Empty(third.PendingNotifications);
         Assert.NotNull(third.CandidateState);
         Assert.Equal(1, third.CandidateState!.RssHtmlMismatchCount);
+    }
+
+    [Fact]
+    public async Task FeedProcessor_ProcessAsync_TransientHttpError_NotifyAfterThresholdAndSuppressAfterNotify()
+    {
+        // timeout / 4xx / 5xx 等の一時障害は、連続しきい値到達まで通知しないことを確認する。
+        var handler = new StubHttpMessageHandler(_ => throw new HttpRequestException("503 Service Unavailable"));
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var notificationsPerRun = new List<int>();
+        for (var index = 0; index < 4; index++)
+        {
+            var result = await processor.ProcessAsync(
+                CreateFeedConfig(),
+                "https://example.invalid/error",
+                _ => "https://example.invalid/pubcom",
+                CancellationToken.None);
+
+            Assert.True(result.Succeeded);
+            notificationsPerRun.Add(result.PendingNotifications.Count);
+            if (result.CandidateState is not null)
+            {
+                await stateStore.SaveAsync("feed-test", result.CandidateState, CancellationToken.None);
+            }
+        }
+
+        Assert.Equal([0, 0, 1, 0], notificationsPerRun);
     }
 
     [Fact]

@@ -29,6 +29,10 @@ public record FeedState
 
     public DateTimeOffset? RssHtmlLastNotifiedUtc { get; init; }
 
+    public int ConsecutiveFailureLastNotifiedCount { get; init; }
+
+    public DateTimeOffset? ConsecutiveFailureLastNotifiedUtc { get; init; }
+
     public static FeedState CreateNew(FeedConfig config) => new()
     {
         FeedUrl = config.Url,

@@ -108,7 +108,7 @@ public sealed class MonitorRunner
             if (!result.Succeeded)
             {
                 hasFailure = true;
-                errors.Add($"feed:{result.FeedId}: {result.ErrorMessage}");
+                errors.Add($"feed:{result.FeedName}({result.FeedId}): {result.ErrorMessage}");
             }
         }
 
