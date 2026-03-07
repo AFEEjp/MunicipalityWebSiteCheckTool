@@ -76,7 +76,6 @@ public sealed class MonitorRunner
         Console.WriteLine($"[feed] 実行対象件数: {targets.Length}");
 
         var errors = new List<string>();
-        var hasFailure = false;
         var results = new List<FeedProcessResult>(targets.Length);
 
         await Parallel.ForEachAsync(
@@ -107,7 +106,6 @@ public sealed class MonitorRunner
             WriteFeedResultLog(result);
             if (!result.Succeeded)
             {
-                hasFailure = true;
                 errors.Add($"feed:{result.FeedName}({result.FeedId}): {result.ErrorMessage}");
             }
         }
@@ -121,7 +119,6 @@ public sealed class MonitorRunner
             .ConfigureAwait(false);
         if (notificationErrors.Count > 0)
         {
-            hasFailure = true;
             errors.AddRange(notificationErrors.Select(static error => error.Message));
         }
 
@@ -137,7 +134,9 @@ public sealed class MonitorRunner
         }
 
         await NotifyErrorSummaryAsync(appOptions.DiscordWebhookError, errors, options.DryRun, cancellationToken).ConfigureAwait(false);
-        return hasFailure ? 1 : 0;
+        // 監視対象サイト側の失敗は運用警告として扱い、ワークフローの終了コードは 0 を返す。
+        // プログラム例外は上位まで伝播して非0終了になるため、処理異常は従来通り検知できる。
+        return 0;
     }
 
     /// <summary>
@@ -155,7 +154,6 @@ public sealed class MonitorRunner
             .ToArray();
 
         var errors = new List<string>();
-        var hasFailure = false;
 
         foreach (var page in targets)
         {
@@ -169,13 +167,13 @@ public sealed class MonitorRunner
 
             if (!result.Succeeded)
             {
-                hasFailure = true;
                 errors.Add($"page:{result.PageId}: {result.ErrorMessage}");
             }
         }
 
         await NotifyErrorSummaryAsync(appOptions.DiscordWebhookError, errors, options.DryRun, cancellationToken).ConfigureAwait(false);
-        return hasFailure ? 1 : 0;
+        // page モードも同様に、監視対象サイト側の失敗では終了コードを落とさない。
+        return 0;
     }
 
     /// <summary>
