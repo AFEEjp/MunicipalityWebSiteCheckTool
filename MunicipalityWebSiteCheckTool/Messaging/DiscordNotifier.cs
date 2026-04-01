@@ -19,6 +19,20 @@ public sealed class DiscordNotifier(IDiscordHttpClient discordHttpClient)
         IEnumerable<string> messages,
         CancellationToken cancellationToken)
     {
+        return await SendMessagesWithOptionalAttachmentAsync(webhookUrl, messages, attachment: null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 分割済みメッセージ群を送信する。添付がある場合は先頭メッセージに付ける。
+    /// 添付送信に失敗した場合は本文のみ送信へフォールバックし、通知欠落を防ぐ。
+    /// </summary>
+    public async Task<bool> SendMessagesWithOptionalAttachmentAsync(
+        string webhookUrl,
+        IEnumerable<string> messages,
+        DiscordAttachment? attachment,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(webhookUrl);
         ArgumentNullException.ThrowIfNull(messages);
 
@@ -34,7 +48,10 @@ public sealed class DiscordNotifier(IDiscordHttpClient discordHttpClient)
         for (var index = 0; index < normalizedMessages.Length; index++)
         {
             var message = normalizedMessages[index];
-            var succeeded = await SendSingleMessageWithRetryAsync(webhookUrl, message, cancellationToken).ConfigureAwait(false);
+            var succeeded = index == 0 && attachment is not null
+                ? await SendSingleMessageWithAttachmentOrFallbackAsync(webhookUrl, message, attachment, cancellationToken)
+                    .ConfigureAwait(false)
+                : await SendSingleMessageWithRetryAsync(webhookUrl, message, cancellationToken).ConfigureAwait(false);
             if (!succeeded)
             {
                 return false;
@@ -76,6 +93,45 @@ public sealed class DiscordNotifier(IDiscordHttpClient discordHttpClient)
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 先頭メッセージを添付付きで送信し、失敗した場合は同じ本文を添付なしで再送する。
+    /// 添付サイズ超過などでも、最低限の障害通知が届くことを優先する。
+    /// </summary>
+    private async Task<bool> SendSingleMessageWithAttachmentOrFallbackAsync(
+        string webhookUrl,
+        string message,
+        DiscordAttachment attachment,
+        CancellationToken cancellationToken)
+    {
+        var payload = CreatePayload(message);
+        var attachedSucceeded = false;
+
+        for (var attempt = 1; attempt <= MaxRetryCount; attempt++)
+        {
+            attachedSucceeded = await discordHttpClient
+                .PostMultipartAsync(
+                    webhookUrl,
+                    payload,
+                    attachment.FileName,
+                    attachment.ContentType,
+                    attachment.Content,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (attachedSucceeded)
+            {
+                return true;
+            }
+
+            if (attempt < MaxRetryCount)
+            {
+                await Task.Delay(RetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // 添付送信が失敗しても、本文通知だけは必ず試みる。
+        return await SendSingleMessageWithRetryAsync(webhookUrl, message, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

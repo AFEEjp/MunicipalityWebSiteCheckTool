@@ -111,7 +111,6 @@ public sealed class MonitorRunner
         }
 
         var pendingNotifications = results
-            .Where(static result => result.Succeeded)
             .SelectMany(static result => result.PendingNotifications)
             .ToArray();
 
@@ -272,24 +271,25 @@ public sealed class MonitorRunner
 
         foreach (var group in groupedByWebhook)
         {
-            var messages = group
-                .SelectMany(static notification => notification.Messages)
-                .Where(static message => !string.IsNullOrWhiteSpace(message))
-                .ToArray();
-            if (messages.Length == 0)
+            foreach (var notification in group)
             {
-                continue;
-            }
+                var messages = notification.Messages
+                    .Where(static message => !string.IsNullOrWhiteSpace(message))
+                    .ToArray();
+                if (messages.Length == 0)
+                {
+                    continue;
+                }
 
-            var notified = await _discordNotifier.SendMessagesAsync(group.Key, messages, cancellationToken).ConfigureAwait(false);
-            if (!notified)
-            {
-                foreach (var failedFeedId in group.Select(static item => item.FeedId).Distinct(StringComparer.OrdinalIgnoreCase))
+                var notified = await _discordNotifier
+                    .SendMessagesWithOptionalAttachmentAsync(group.Key, messages, notification.Attachment, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!notified)
                 {
                     errors.Add(new NotificationDispatchError
                     {
-                        FeedId = failedFeedId,
-                        Message = $"notify:{group.Key}: 通知送信に失敗しました。feedId={failedFeedId}"
+                        FeedId = notification.FeedId,
+                        Message = $"notify:{group.Key}: 通知送信に失敗しました。feedId={notification.FeedId}"
                     });
                 }
             }

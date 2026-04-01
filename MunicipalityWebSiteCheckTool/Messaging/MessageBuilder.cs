@@ -212,6 +212,31 @@ public sealed class MessageBuilder
     }
 
     /// <summary>
+    /// RSS/Atom XML 解析失敗を通知する。
+    /// 詳細調査向けの取得本文は添付ファイル側で渡し、本文は概要に絞る。
+    /// </summary>
+    public IReadOnlyList<string> BuildRssParseErrorMessages(
+        string feedName,
+        string feedId,
+        string feedUrl,
+        string errorMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(feedUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+
+        var builder = new StringBuilder();
+        builder.AppendLine("[RSS解析失敗]");
+        builder.AppendLine($"対象: {feedName} ({feedId})");
+        builder.AppendLine($"URL: {feedUrl}");
+        builder.AppendLine($"エラー: {NormalizeLine(errorMessage) ?? errorMessage}");
+        builder.AppendLine("取得データをZIP添付しました（添付失敗時は本文のみ通知）。");
+
+        return SplitMessage(builder.ToString());
+    }
+
+    /// <summary>
     /// Discord 送信しやすいよう、長文を一定文字数ごとに分割する。
     /// 改行を優先しつつ、長すぎる 1 行だけは強制分割する。
     /// </summary>

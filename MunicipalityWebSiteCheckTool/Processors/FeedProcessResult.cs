@@ -1,4 +1,5 @@
 using MunicipalityWebSiteCheckTool.Domain;
+using MunicipalityWebSiteCheckTool.Messaging;
 
 namespace MunicipalityWebSiteCheckTool.Processors;
 
@@ -54,4 +55,6 @@ public sealed record PendingNotification
     public required string WebhookUrl { get; init; }
 
     public required IReadOnlyList<string> Messages { get; init; }
+
+    public DiscordAttachment? Attachment { get; init; }
 }

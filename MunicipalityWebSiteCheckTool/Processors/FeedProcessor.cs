@@ -5,6 +5,8 @@ using MunicipalityWebSiteCheckTool.Http;
 using MunicipalityWebSiteCheckTool.Messaging;
 using MunicipalityWebSiteCheckTool.Processing;
 using MunicipalityWebSiteCheckTool.State;
+using System.IO.Compression;
+using System.Text;
 
 namespace MunicipalityWebSiteCheckTool.Processors;
 
@@ -14,6 +16,7 @@ public sealed class FeedProcessor
     private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(30);
     private const int RssHtmlNotifyThreshold = 3;
     private const int RssHtmlNotifySuppressCount = 3;
+    private const int ParseErrorContentByteLimit = 512 * 1024;
 
     private readonly IFeedHttpClient _feedHttpClient;
     private readonly IBrowserFeedHttpClient _browserFeedHttpClient;
@@ -72,9 +75,12 @@ public sealed class FeedProcessor
             };
         }
 
+        string? fetchedContent = null;
+
         try
         {
             var fetchResult = await FetchFeedContentAsync(config, state, cancellationToken).ConfigureAwait(false);
+            fetchedContent = fetchResult.Content;
             var updatedState = state with
             {
                 FeedUrl = fetchResult.FinalUrl,
@@ -270,14 +276,104 @@ public sealed class FeedProcessor
             var failedState = BuildFailureState(config, state);
             await _stateStore.SaveAsync(config.Id, failedState, cancellationToken).ConfigureAwait(false);
 
+            var parseErrorNotifications = BuildParseErrorNotifications(
+                config,
+                errorWebhookUrl,
+                ex,
+                fetchedContent);
+
             return new FeedProcessResult
             {
                 FeedId = config.Id,
                 FeedName = config.Name,
                 Succeeded = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = ex.Message,
+                PendingNotifications = parseErrorNotifications
             };
         }
+    }
+
+    /// <summary>
+    /// RSS/Atom XML 解析失敗時に、調査用の取得本文を ZIP 添付で通知する。
+    /// 添付送信に失敗しても本文通知へフォールバックされる前提で、通知欠落を防ぐ。
+    /// </summary>
+    private IReadOnlyList<PendingNotification> BuildParseErrorNotifications(
+        FeedConfig config,
+        string errorWebhookUrl,
+        Exception ex,
+        string? fetchedContent)
+    {
+        if (string.IsNullOrWhiteSpace(fetchedContent))
+        {
+            return [];
+        }
+
+        if (!IsRssXmlParseError(ex))
+        {
+            return [];
+        }
+
+        var messages = _messageBuilder.BuildRssParseErrorMessages(config.Name, config.Id, config.Url, ex.Message);
+        if (messages.Count == 0)
+        {
+            return [];
+        }
+
+        var attachment = CreateParseErrorAttachment(config.Id, fetchedContent);
+
+        return
+        [
+            new PendingNotification
+            {
+                FeedId = config.Id,
+                WebhookUrl = errorWebhookUrl,
+                Messages = messages,
+                Attachment = attachment
+            }
+        ];
+    }
+
+    /// <summary>
+    /// XML 解析失敗と見なせる例外かを判定する。
+    /// RssFeedSource が包んだ InvalidOperationException(inner: XmlException) を対象にする。
+    /// </summary>
+    private static bool IsRssXmlParseError(Exception ex)
+    {
+        return ex is InvalidOperationException { InnerException: System.Xml.XmlException };
+    }
+
+    /// <summary>
+    /// 取得本文を ZIP 化して Discord 添付用のバイト列を作る。
+    /// 巨大レスポンスは先頭を切り詰め、通知自体が失敗しにくいサイズに抑える。
+    /// </summary>
+    private static DiscordAttachment CreateParseErrorAttachment(string feedId, string fetchedContent)
+    {
+        var contentBytes = Encoding.UTF8.GetBytes(fetchedContent);
+        if (contentBytes.Length > ParseErrorContentByteLimit)
+        {
+            var notice = Encoding.UTF8.GetBytes(
+                $"\n\n<!-- content truncated to {ParseErrorContentByteLimit} bytes for diagnostic attachment -->");
+            var truncated = new byte[ParseErrorContentByteLimit + notice.Length];
+            Buffer.BlockCopy(contentBytes, 0, truncated, 0, ParseErrorContentByteLimit);
+            Buffer.BlockCopy(notice, 0, truncated, ParseErrorContentByteLimit, notice.Length);
+            contentBytes = truncated;
+        }
+
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var entry = archive.CreateEntry("rss-content.xml", CompressionLevel.Fastest);
+            using var entryStream = entry.Open();
+            entryStream.Write(contentBytes, 0, contentBytes.Length);
+        }
+
+        var safeFeedId = string.IsNullOrWhiteSpace(feedId) ? "unknown" : feedId;
+        return new DiscordAttachment
+        {
+            FileName = $"rss-parse-error-{safeFeedId}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.zip",
+            ContentType = "application/zip",
+            Content = memoryStream.ToArray()
+        };
     }
 
     /// <summary>

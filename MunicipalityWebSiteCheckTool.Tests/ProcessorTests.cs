@@ -136,6 +136,47 @@ public sealed class ProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task FeedProcessor_ProcessAsync_RssParseError_AttachRawContentAsZipNotification()
+    {
+        // RSS解析失敗時に、調査用の取得本文ZIPがエラー通知として組み立てられることを確認する。
+        var handler = new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <rss version="2.0">
+                      <channel>
+                        <item>
+                          <title>壊れたXML</title>
+                        </item>
+                    """, Encoding.UTF8, "application/xml")
+            });
+
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var result = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        var pending = Assert.Single(result.PendingNotifications);
+        Assert.Equal("feed-test", pending.FeedId);
+        Assert.Equal("https://example.invalid/error", pending.WebhookUrl);
+        Assert.NotNull(pending.Attachment);
+        Assert.Equal("application/zip", pending.Attachment!.ContentType);
+        Assert.StartsWith("rss-parse-error-feed-test-", pending.Attachment.FileName, StringComparison.Ordinal);
+        Assert.NotEmpty(pending.Attachment.Content);
+    }
+
+    [Fact]
     public async Task FeedProcessor_ProcessAsync_RssHtmlMismatch_NotifyAfterThresholdAndSuppressAfterNotify()
     {
         // rss 指定で HTML 応答が続く場合、しきい値到達で通知し、その後は一定回数まで再通知しないことを確認する。
