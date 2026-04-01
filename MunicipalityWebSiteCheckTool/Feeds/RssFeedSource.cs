@@ -1,5 +1,8 @@
 using System.Xml.Linq;
 using System.Xml;
+using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
 using MunicipalityWebSiteCheckTool.Config;
 using MunicipalityWebSiteCheckTool.Domain;
 using MunicipalityWebSiteCheckTool.Processing;
@@ -8,6 +11,19 @@ namespace MunicipalityWebSiteCheckTool.Feeds;
 
 public sealed class RssFeedSource : IFeedSource
 {
+    private static readonly Regex NamedEntityPattern = new(
+        @"&([A-Za-z][A-Za-z0-9]+);",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly HashSet<string> XmlPredefinedEntities = new(StringComparer.Ordinal)
+    {
+        "lt",
+        "gt",
+        "amp",
+        "apos",
+        "quot"
+    };
+
     public string Type => "rss";
 
     /// <summary>
@@ -22,7 +38,7 @@ public sealed class RssFeedSource : IFeedSource
         XDocument document;
         try
         {
-            document = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+            document = XDocument.Parse(NormalizeHtmlNamedEntities(content), LoadOptions.PreserveWhitespace);
         }
         catch (XmlException ex) when (IsLikelyHtmlContent(content))
         {
@@ -314,5 +330,42 @@ public sealed class RssFeedSource : IFeedSource
                content.Contains("<body", StringComparison.OrdinalIgnoreCase) ||
                content.Contains("<meta", StringComparison.OrdinalIgnoreCase) ||
                content.Contains("<!doctype html", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// XML で未宣言の HTML 名前付き実体参照(例: &amp;nbsp;)を数値文字参照へ変換する。
+    /// XML 既定の 5 種はそのまま残し、RSS 側の書式揺れで解析全体が止まるのを防ぐ。
+    /// </summary>
+    private static string NormalizeHtmlNamedEntities(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return content;
+        }
+
+        return NamedEntityPattern.Replace(content, static match =>
+        {
+            var entityName = match.Groups[1].Value;
+            if (XmlPredefinedEntities.Contains(entityName))
+            {
+                return match.Value;
+            }
+
+            var decoded = WebUtility.HtmlDecode(match.Value);
+            if (string.Equals(decoded, match.Value, StringComparison.Ordinal))
+            {
+                return $"&amp;{entityName};";
+            }
+
+            var builder = new StringBuilder();
+            foreach (var rune in decoded.EnumerateRunes())
+            {
+                builder.Append("&#x");
+                builder.Append(rune.Value.ToString("X"));
+                builder.Append(';');
+            }
+
+            return builder.ToString();
+        });
     }
 }

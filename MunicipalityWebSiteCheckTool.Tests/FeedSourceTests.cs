@@ -77,6 +77,29 @@ public sealed class FeedSourceTests
     }
 
     [Fact]
+    public void RssFeedSource_ParseItems_ReadTitleWithHtmlNamedEntity()
+    {
+        // 名前付き HTML 実体参照(&nbsp;)を含む RSS でも解析できることを確認する。
+        const string content = """
+            <rss version="2.0">
+              <channel>
+                <item>
+                  <title>Let&#39;s&nbsp;study～家庭学習のすすめ～</title>
+                  <link>https://example.com/c</link>
+                </item>
+              </channel>
+            </rss>
+            """;
+
+        var source = new RssFeedSource();
+        var items = source.ParseItems(CreateFeedConfig("rss"), content, "https://example.com/feed.xml");
+
+        var item = Assert.Single(items);
+        Assert.Equal("Let's study～家庭学習のすすめ～", item.Title);
+        Assert.Equal("https://example.com/c", item.Url);
+    }
+
+    [Fact]
     public void HtmlFeedSource_ParseItems_ReadAnchorsAndSkipMailto()
     {
         // a タグを抽出し、mailto は除外することを確認する。
