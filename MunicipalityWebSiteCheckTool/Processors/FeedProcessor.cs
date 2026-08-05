@@ -76,12 +76,22 @@ public sealed class FeedProcessor
         }
 
         string? fetchedContent = null;
+        FetchResult? fetchResult = null;
+        UrlMigrationNotificationPlan? migrationPlan = null;
 
         try
         {
-            var fetchResult = await FetchFeedContentAsync(config, state, cancellationToken).ConfigureAwait(false);
+            fetchResult = await FetchFeedContentAsync(config, state, cancellationToken).ConfigureAwait(false);
             fetchedContent = fetchResult.Content;
-            var updatedState = state with
+            migrationPlan = BuildUrlMigrationNotificationPlan(
+                config.Id,
+                config.Name,
+                fetchResult.FinalUrl,
+                errorWebhookUrl,
+                state.UrlMigration,
+                fetchResult.UrlMigrationHint);
+
+            var baseState = state with
             {
                 FeedUrl = fetchResult.FinalUrl,
                 FeedType = config.Type,
@@ -93,30 +103,36 @@ public sealed class FeedProcessor
                 RssHtmlLastNotifiedCount = 0,
                 RssHtmlLastNotifiedUtc = null,
                 ConsecutiveFailureLastNotifiedCount = 0,
-                ConsecutiveFailureLastNotifiedUtc = null
+                ConsecutiveFailureLastNotifiedUtc = null,
+                UrlMigration = migrationPlan.BaseState
+            };
+            var candidateBaseState = baseState with
+            {
+                UrlMigration = migrationPlan.CandidateState
             };
 
             var pendingNotifications = new List<PendingNotification>();
             pendingNotifications.AddRange(BuildUrlChangedNotifications(config, fetchResult.FinalUrl, errorWebhookUrl));
+            pendingNotifications.AddRange(migrationPlan.PendingNotifications);
 
             if (fetchResult.IsNotModified)
             {
-                await _stateStore.SaveAsync(config.Id, updatedState, cancellationToken).ConfigureAwait(false);
+                await _stateStore.SaveAsync(config.Id, baseState, cancellationToken).ConfigureAwait(false);
                 return new FeedProcessResult
                 {
                     FeedId = config.Id,
                     FeedName = config.Name,
                     Succeeded = true,
                     PendingNotifications = pendingNotifications,
-                    BaseState = updatedState,
-                    CandidateState = updatedState
+                    BaseState = baseState,
+                    CandidateState = candidateBaseState
                 };
             }
 
             var feedSource = ResolveFeedSource(config.Type);
             var items = feedSource.ParseItems(config, fetchResult.Content!, fetchResult.FinalUrl);
 
-            var seen = updatedState.Seen;
+            var seen = baseState.Seen;
             var newItemCount = 0;
             var titleChangedCount = 0;
             var webhookUrl = resolveWebhookUrl(config.WebhookKey);
@@ -150,13 +166,15 @@ public sealed class FeedProcessor
                             Title = item.Title,
                             FirstSeenAt = DateTimeOffset.UtcNow
                         },
-                        updatedState.MaxSeen);
+                        baseState.MaxSeen);
 
                     newItemCount++;
                     newItems.Add(new FeedDetectedItem
                     {
+                        DetectedAtUtc = DateTimeOffset.UtcNow,
                         Title = item.Title,
-                        Url = item.Url
+                        Url = item.Url,
+                        MatchedKeywords = keywords
                     });
                     continue;
                 }
@@ -183,7 +201,7 @@ public sealed class FeedProcessor
                 }
             }
 
-            var candidateState = updatedState with
+            var candidateState = candidateBaseState with
             {
                 Seen = seen
             };
@@ -198,12 +216,46 @@ public sealed class FeedProcessor
                 NewItems = newItems,
                 TitleChangedItems = titleChangedItems,
                 PendingNotifications = pendingNotifications,
-                BaseState = updatedState,
-                    CandidateState = candidateState
+                BaseState = baseState,
+                CandidateState = candidateState
             };
         }
         catch (RssUnexpectedHtmlException)
         {
+            if (fetchResult?.UrlMigrationHint is not null && migrationPlan is not null)
+            {
+                var baseState = state with
+                {
+                    FeedUrl = fetchResult.FinalUrl,
+                    FeedType = config.Type,
+                    UpdatedUtc = DateTimeOffset.UtcNow,
+                    HttpCache = fetchResult.NewCache,
+                    ConsecutiveFailures = 0,
+                    CircuitOpenUntil = null,
+                    RssHtmlMismatchCount = 0,
+                    RssHtmlLastNotifiedCount = 0,
+                    RssHtmlLastNotifiedUtc = null,
+                    UrlMigration = migrationPlan.BaseState
+                };
+                var migrationCandidateState = baseState with
+                {
+                    UrlMigration = migrationPlan.CandidateState
+                };
+
+                return new FeedProcessResult
+                {
+                    FeedId = config.Id,
+                    FeedName = config.Name,
+                    Succeeded = true,
+                    WarningMessage = migrationPlan.ShouldNotify
+                        ? $"url-migration: {fetchResult.UrlMigrationHint.Reason} を連続 {migrationPlan.BaseState?.ConsecutiveCount ?? 0} 回検知。通知送信対象。"
+                        : $"url-migration: {fetchResult.UrlMigrationHint.Reason} を連続 {migrationPlan.BaseState?.ConsecutiveCount ?? 0} 回検知。通知は抑制中。",
+                    PendingNotifications = migrationPlan.PendingNotifications,
+                    BaseState = baseState,
+                    CandidateState = migrationCandidateState
+                };
+            }
+
             var mismatchCount = state.RssHtmlMismatchCount + 1;
             var shouldNotify = mismatchCount >= RssHtmlNotifyThreshold &&
                                (state.RssHtmlLastNotifiedCount <= 0 ||
@@ -215,12 +267,14 @@ public sealed class FeedProcessor
 
             var candidateState = state with
             {
-                FeedUrl = config.Url,
+                FeedUrl = fetchResult?.FinalUrl ?? config.Url,
                 FeedType = config.Type,
                 UpdatedUtc = DateTimeOffset.UtcNow,
                 RssHtmlMismatchCount = mismatchCount,
                 RssHtmlLastNotifiedCount = shouldNotify ? mismatchCount : state.RssHtmlLastNotifiedCount,
-                RssHtmlLastNotifiedUtc = shouldNotify ? DateTimeOffset.UtcNow : state.RssHtmlLastNotifiedUtc
+                RssHtmlLastNotifiedUtc = shouldNotify ? DateTimeOffset.UtcNow : state.RssHtmlLastNotifiedUtc,
+                HttpCache = fetchResult?.NewCache ?? state.HttpCache,
+                UrlMigration = migrationPlan?.BaseState ?? UrlMigrationTracker.Update(state.UrlMigration, null)
             };
 
             return new FeedProcessResult
@@ -415,6 +469,41 @@ public sealed class FeedProcessor
         ];
     }
 
+    private UrlMigrationNotificationPlan BuildUrlMigrationNotificationPlan(
+        string feedId,
+        string targetName,
+        string inspectedUrl,
+        string errorWebhookUrl,
+        UrlMigrationState? previousState,
+        UrlMigrationHint? hint)
+    {
+        var baseState = UrlMigrationTracker.Update(previousState, hint);
+        if (hint is null || !UrlMigrationTracker.ShouldNotify(baseState, hint))
+        {
+            return new UrlMigrationNotificationPlan(baseState, baseState, [], false);
+        }
+
+        var messages = _messageBuilder.BuildUrlMigrationDetectedMessages(targetName, inspectedUrl, hint);
+        if (messages.Count == 0)
+        {
+            return new UrlMigrationNotificationPlan(baseState, baseState, [], false);
+        }
+
+        var candidateState = UrlMigrationTracker.MarkNotified(baseState, hint, DateTimeOffset.UtcNow);
+        return new UrlMigrationNotificationPlan(
+            baseState,
+            candidateState,
+            [
+                new PendingNotification
+                {
+                    FeedId = feedId,
+                    WebhookUrl = errorWebhookUrl,
+                    Messages = messages
+                }
+            ],
+            true);
+    }
+
     /// <summary>
     /// 通信系の連続失敗通知を作る。
     /// しきい値到達時のみ呼ばれる想定で、通知先はエラー Webhook に固定する。
@@ -565,4 +654,10 @@ public sealed class FeedProcessor
         return state.CircuitOpenUntil is not null &&
                state.CircuitOpenUntil.Value > DateTimeOffset.UtcNow;
     }
+
+    private sealed record UrlMigrationNotificationPlan(
+        UrlMigrationState? BaseState,
+        UrlMigrationState? CandidateState,
+        IReadOnlyList<PendingNotification> PendingNotifications,
+        bool ShouldNotify);
 }

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using MunicipalityWebSiteCheckTool.Domain;
+using MunicipalityWebSiteCheckTool.Processing;
 using UtfUnknown;
 
 namespace MunicipalityWebSiteCheckTool.Http;
@@ -75,7 +76,8 @@ public class FeedHttpClient(HttpClient httpClient) : IFeedHttpClient
         {
             Content = content,
             FinalUrl = finalUrl,
-            NewCache = newCache
+            NewCache = newCache,
+            UrlMigrationHint = UrlMigrationDetector.Detect(content, finalUrl)
         };
     }
 }

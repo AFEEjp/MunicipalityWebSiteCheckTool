@@ -1,6 +1,7 @@
 using Microsoft.Playwright;
 using MunicipalityWebSiteCheckTool.Config;
 using MunicipalityWebSiteCheckTool.Domain;
+using MunicipalityWebSiteCheckTool.Processing;
 
 namespace MunicipalityWebSiteCheckTool.Http;
 
@@ -49,7 +50,8 @@ public sealed class BrowserFeedHttpClient : IBrowserFeedHttpClient
         {
             Content = content,
             FinalUrl = finalUrl,
-            NewCache = new HttpCacheInfo()
+            NewCache = new HttpCacheInfo(),
+            UrlMigrationHint = UrlMigrationDetector.Detect(content, finalUrl)
         };
     }
 

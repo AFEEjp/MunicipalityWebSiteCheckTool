@@ -23,4 +23,8 @@ public record PageState
     public int ConsecutiveFailures { get; init; }
 
     public DateTimeOffset? CircuitOpenUntil { get; init; }
+
+    public UrlMigrationState? TopPageUrlMigration { get; init; }
+
+    public UrlMigrationState? ContentPageUrlMigration { get; init; }
 }

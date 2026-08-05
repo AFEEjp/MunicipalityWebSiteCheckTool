@@ -6,6 +6,7 @@ using MunicipalityWebSiteCheckTool.Config;
 using MunicipalityWebSiteCheckTool.Domain;
 using MunicipalityWebSiteCheckTool.Http;
 using MunicipalityWebSiteCheckTool.Messaging;
+using MunicipalityWebSiteCheckTool.Processing;
 using MunicipalityWebSiteCheckTool.State;
 
 namespace MunicipalityWebSiteCheckTool.Processors;
@@ -70,6 +71,14 @@ public sealed class PageProcessor
         {
             var topFetch = await _feedHttpClient.FetchAsync(config.Url, state.TopPageHttpCache, cancellationToken).ConfigureAwait(false);
             await NotifyUrlChangedAsync(config.Name, config.Url, topFetch.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
+            var topPageUrlMigration = await NotifyUrlMigrationAsync(
+                config.Name,
+                topFetch.FinalUrl,
+                state.TopPageUrlMigration,
+                topFetch.UrlMigrationHint,
+                errorWebhookUrl,
+                dryRun,
+                cancellationToken).ConfigureAwait(false);
 
             var topState = state with
             {
@@ -77,7 +86,8 @@ public sealed class PageProcessor
                 LastCheckedAt = DateTimeOffset.UtcNow,
                 TopPageHttpCache = topFetch.NewCache,
                 ConsecutiveFailures = 0,
-                CircuitOpenUntil = null
+                CircuitOpenUntil = null,
+                TopPageUrlMigration = topPageUrlMigration
             };
 
             var contentFetchPlan = await ResolveContentFetchAsync(config, topState, topFetch, cancellationToken).ConfigureAwait(false);
@@ -97,11 +107,29 @@ public sealed class PageProcessor
                 };
             }
 
-            await NotifyUrlChangedAsync(config.Name, contentFetchPlan.PageUrl, contentFetchPlan.FetchResult.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
+            var contentFetchIsTopFetch = ReferenceEquals(contentFetchPlan.FetchResult, topFetch);
+            UrlMigrationState? contentPageUrlMigration;
+            if (contentFetchIsTopFetch)
+            {
+                contentPageUrlMigration = topState.TopPageUrlMigration;
+            }
+            else
+            {
+                await NotifyUrlChangedAsync(config.Name, contentFetchPlan.PageUrl, contentFetchPlan.FetchResult.FinalUrl, errorWebhookUrl, dryRun, cancellationToken).ConfigureAwait(false);
+                contentPageUrlMigration = await NotifyUrlMigrationAsync(
+                    config.Name,
+                    contentFetchPlan.FetchResult.FinalUrl,
+                    topState.ContentPageUrlMigration,
+                    contentFetchPlan.FetchResult.UrlMigrationHint,
+                    errorWebhookUrl,
+                    dryRun,
+                    cancellationToken).ConfigureAwait(false);
+            }
             nextState = nextState with
             {
                 PageUrl = contentFetchPlan.FetchResult.FinalUrl,
-                ContentPageHttpCache = contentFetchPlan.FetchResult.NewCache
+                ContentPageHttpCache = contentFetchPlan.FetchResult.NewCache,
+                ContentPageUrlMigration = contentPageUrlMigration
             };
 
             if (contentFetchPlan.FetchResult.IsNotModified)
@@ -413,6 +441,31 @@ public sealed class PageProcessor
         {
             throw new InvalidOperationException("URL 変更警告の送信に失敗しました。");
         }
+    }
+
+    private async Task<UrlMigrationState?> NotifyUrlMigrationAsync(
+        string targetName,
+        string inspectedUrl,
+        UrlMigrationState? previousState,
+        UrlMigrationHint? hint,
+        string errorWebhookUrl,
+        bool dryRun,
+        CancellationToken cancellationToken)
+    {
+        var updatedState = UrlMigrationTracker.Update(previousState, hint);
+        if (hint is null || !UrlMigrationTracker.ShouldNotify(updatedState, hint) || dryRun)
+        {
+            return updatedState;
+        }
+
+        var messages = _messageBuilder.BuildUrlMigrationDetectedMessages(targetName, inspectedUrl, hint);
+        var notified = await _discordNotifier.SendMessagesAsync(errorWebhookUrl, messages, cancellationToken).ConfigureAwait(false);
+        if (!notified)
+        {
+            throw new InvalidOperationException("URL 移行警告の送信に失敗しました。");
+        }
+
+        return UrlMigrationTracker.MarkNotified(updatedState, hint, DateTimeOffset.UtcNow);
     }
 
     /// <summary>

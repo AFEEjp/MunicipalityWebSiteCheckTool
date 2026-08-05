@@ -34,9 +34,13 @@ public sealed record FeedProcessResult
 
 public sealed record FeedDetectedItem
 {
+    public required DateTimeOffset DetectedAtUtc { get; init; }
+
     public string? Title { get; init; }
 
     public string? Url { get; init; }
+
+    public IReadOnlyList<string> MatchedKeywords { get; init; } = [];
 }
 
 public sealed record FeedTitleChangedItem

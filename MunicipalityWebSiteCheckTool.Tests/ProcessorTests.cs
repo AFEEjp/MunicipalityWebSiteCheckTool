@@ -60,6 +60,9 @@ public sealed class ProcessorTests : IDisposable
         Assert.NotNull(result.CandidateState);
         Assert.Single(result.CandidateState!.Seen);
         Assert.Equal("意見募集 条例案", result.CandidateState.Seen[0].Title);
+        var detected = Assert.Single(result.NewItems);
+        Assert.Equal(["意見募集", "条例"], detected.MatchedKeywords);
+        Assert.Equal("https://example.com/item1", detected.Url);
     }
 
     [Fact]
@@ -286,6 +289,52 @@ public sealed class ProcessorTests : IDisposable
         Assert.Empty(third.PendingNotifications);
         Assert.NotNull(third.CandidateState);
         Assert.Equal(1, third.CandidateState!.RssHtmlMismatchCount);
+    }
+
+    [Fact]
+    public async Task FeedProcessor_ProcessAsync_RssHtmlMetaRefresh_NotifyImmediatelyAndSuppressSameCandidate()
+    {
+        // RSS想定URLが移行案内HTMLへ変わった場合、meta refresh を即時通知し、同一候補は再通知しないことを確認する。
+        var handler = new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <html>
+                      <head>
+                        <meta http-equiv="refresh" content="0; url=https://example.com/new-feed.xml">
+                      </head>
+                      <body>このページは新サイトへ移行しました。</body>
+                    </html>
+                    """, Encoding.UTF8, "text/html")
+            });
+
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var first = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+        await stateStore.SaveAsync("feed-test", first.CandidateState!, CancellationToken.None);
+
+        var second = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+
+        Assert.Single(first.PendingNotifications);
+        Assert.Empty(second.PendingNotifications);
+        Assert.NotNull(first.CandidateState?.UrlMigration);
+        Assert.Equal(0, first.CandidateState!.RssHtmlMismatchCount);
+        Assert.Equal("https://example.com/new-feed.xml", first.CandidateState.UrlMigration!.LastCandidateUrl);
     }
 
     [Fact]
@@ -528,6 +577,53 @@ public sealed class ProcessorTests : IDisposable
 
         Assert.True(result.Succeeded);
         Assert.Equal(["https://example.com/list", "https://example.com/detail"], requestedUrls);
+    }
+
+    [Fact]
+    public async Task PageProcessor_ProcessAsync_MetaRefresh_NotifyOnlyOnce()
+    {
+        // page モードで meta refresh を検知した場合、同一候補への通知は初回だけ送ることを確認する。
+        var pageHandler = new StubHttpMessageHandler(_ => CreateHtmlResponse("""
+            <html>
+              <head>
+                <meta http-equiv="refresh" content="5; url=https://example.com/new-page">
+                <title>このページは新サイトへ移行しました</title>
+              </head>
+              <body>
+                <main>移行しました。</main>
+              </body>
+            </html>
+            """));
+        var discordHandler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+        using var httpClient = new HttpClient(pageHandler);
+        using var discordClient = new HttpClient(discordHandler);
+        var stateStore = CreateStateStore();
+        var processor = new PageProcessor(
+            new FeedHttpClient(httpClient),
+            stateStore,
+            new MessageBuilder(),
+            new DiscordNotifier(new DiscordHttpClient(discordClient)));
+
+        var first = await processor.ProcessAsync(
+            CreatePageConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/page",
+            dryRun: false,
+            CancellationToken.None);
+        var second = await processor.ProcessAsync(
+            CreatePageConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/page",
+            dryRun: false,
+            CancellationToken.None);
+
+        Assert.True(first.Succeeded);
+        Assert.True(second.Succeeded);
+        Assert.Equal(1, discordHandler.CallCount);
+
+        var state = await stateStore.LoadPageAsync("page-test", CancellationToken.None);
+        Assert.NotNull(state?.TopPageUrlMigration);
+        Assert.Equal("https://example.com/new-page", state!.TopPageUrlMigration!.LastCandidateUrl);
     }
 
     private StateStore CreateStateStore()

@@ -33,6 +33,8 @@ public record FeedState
 
     public DateTimeOffset? ConsecutiveFailureLastNotifiedUtc { get; init; }
 
+    public UrlMigrationState? UrlMigration { get; init; }
+
     public static FeedState CreateNew(FeedConfig config) => new()
     {
         FeedUrl = config.Url,

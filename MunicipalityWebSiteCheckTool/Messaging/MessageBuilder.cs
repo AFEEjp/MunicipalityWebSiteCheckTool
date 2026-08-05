@@ -212,6 +212,37 @@ public sealed class MessageBuilder
     }
 
     /// <summary>
+    /// HTML 上の移行案内から URL 変更候補を検知した通知文を組み立てる。
+    /// HTTP リダイレクトとは別種のため、根拠と信頼度を明示して運用判断しやすくする。
+    /// </summary>
+    public IReadOnlyList<string> BuildUrlMigrationDetectedMessages(
+        string targetName,
+        string inspectedUrl,
+        UrlMigrationHint hint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(inspectedUrl);
+        ArgumentNullException.ThrowIfNull(hint);
+
+        var title = string.Equals(hint.Confidence, UrlMigrationConfidences.High, StringComparison.OrdinalIgnoreCase)
+            ? "[URL変更候補検知]"
+            : "[移行案内ページ検知]";
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"{title} {targetName}");
+        builder.AppendLine($"判定対象URL: {inspectedUrl}");
+        if (!string.IsNullOrWhiteSpace(hint.CandidateUrl))
+        {
+            builder.AppendLine($"候補URL: {hint.CandidateUrl}");
+        }
+
+        builder.AppendLine($"検知根拠: {ResolveUrlMigrationReasonLabel(hint.Reason)}");
+        builder.AppendLine($"信頼度: {hint.Confidence}");
+        builder.AppendLine("対応: ページ移転の可能性があります。JSON 設定の URL を確認してください。");
+        return SplitMessage(builder.ToString());
+    }
+
+    /// <summary>
     /// RSS/Atom XML 解析失敗を通知する。
     /// 詳細調査向けの取得本文は添付ファイル側で渡し、本文は概要に絞る。
     /// </summary>
@@ -256,6 +287,19 @@ public sealed class MessageBuilder
 
         FlushCurrent(results, current);
         return results;
+    }
+
+    private static string ResolveUrlMigrationReasonLabel(string reason)
+    {
+        return reason switch
+        {
+            UrlMigrationReasons.HttpRedirect => "HTTP リダイレクト",
+            UrlMigrationReasons.MetaRefresh => "meta refresh",
+            UrlMigrationReasons.JavaScriptRedirect => "JavaScript location",
+            UrlMigrationReasons.MigrationLink => "移行案内文 + 近傍リンク",
+            UrlMigrationReasons.MigrationTextOnly => "移行案内文のみ",
+            _ => reason
+        };
     }
 
     /// <summary>

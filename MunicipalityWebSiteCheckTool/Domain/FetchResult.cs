@@ -8,5 +8,7 @@ public record FetchResult
 
     public required HttpCacheInfo NewCache { get; init; }
 
+    public UrlMigrationHint? UrlMigrationHint { get; init; }
+
     public bool IsNotModified => Content is null;
 }

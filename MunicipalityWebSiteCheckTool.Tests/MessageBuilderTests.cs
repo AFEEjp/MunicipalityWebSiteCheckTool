@@ -100,4 +100,29 @@ public sealed class MessageBuilderTests
         Assert.Contains("連続失敗回数: 5 回", message);
         Assert.Contains("最新エラー: The request timed out.", message);
     }
+
+    [Fact]
+    public void BuildUrlMigrationDetectedMessages_IncludeReasonAndConfidence()
+    {
+        // HTML 移行検知の通知文に候補 URL・根拠・信頼度が入ることを確認する。
+        var builder = new MessageBuilder();
+
+        var messages = builder.BuildUrlMigrationDetectedMessages(
+            "サンプル自治体",
+            "https://example.com/old",
+            new UrlMigrationHint
+            {
+                Reason = UrlMigrationReasons.MetaRefresh,
+                Confidence = UrlMigrationConfidences.High,
+                CandidateUrl = "https://example.com/new",
+                Fingerprint = "meta-refresh|abc"
+            });
+
+        var message = Assert.Single(messages);
+        Assert.Contains("[URL変更候補検知] サンプル自治体", message);
+        Assert.Contains("判定対象URL: https://example.com/old", message);
+        Assert.Contains("候補URL: https://example.com/new", message);
+        Assert.Contains("検知根拠: meta refresh", message);
+        Assert.Contains("信頼度: high", message);
+    }
 }
