@@ -338,6 +338,47 @@ public sealed class ProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task FeedProcessor_ProcessAsync_RssXmlContainingMigrationText_DoNotTriggerUrlMigration()
+    {
+        // RSS/XML 内に移行文言が含まれていても、HTML化けしていない限り URL 移行検知しないことを確認する。
+        var handler = new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <rss version="2.0">
+                      <channel>
+                        <title>お知らせ一覧</title>
+                        <item>
+                          <title>新サイトへ移行しました</title>
+                          <link>https://example.com/item1</link>
+                        </item>
+                      </channel>
+                    </rss>
+                    """, Encoding.UTF8, "application/xml")
+            });
+
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var result = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(result.PendingNotifications);
+        Assert.Null(result.CandidateState?.UrlMigration?.LastReason);
+    }
+
+    [Fact]
     public async Task FeedProcessor_ProcessAsync_TransientHttpError_NotifyAfterThresholdAndSuppressAfterNotify()
     {
         // timeout / 4xx / 5xx 等の一時障害は、連続しきい値到達まで通知しないことを確認する。

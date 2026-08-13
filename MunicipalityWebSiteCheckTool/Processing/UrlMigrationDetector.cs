@@ -179,13 +179,26 @@ public static partial class UrlMigrationDetector
 
     private static bool LooksLikeHtml(string content)
     {
-        return content.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
-               content.Contains("<body", StringComparison.OrdinalIgnoreCase) ||
-               content.Contains("<head", StringComparison.OrdinalIgnoreCase) ||
-               content.Contains("<meta", StringComparison.OrdinalIgnoreCase) ||
-               content.Contains("<title", StringComparison.OrdinalIgnoreCase) ||
-               content.Contains("<script", StringComparison.OrdinalIgnoreCase) ||
-               content.Contains("<!doctype html", StringComparison.OrdinalIgnoreCase);
+        var trimmed = content.TrimStart();
+        if (trimmed.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("<rss", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("<feed", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("<rdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return trimmed.StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<head", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<body", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<main", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<article", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<section", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<div", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<p", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<meta", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<script", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ContainsMigrationKeyword(string? text)

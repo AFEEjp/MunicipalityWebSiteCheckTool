@@ -86,4 +86,25 @@ public sealed class UrlMigrationDetectorTests
         Assert.Equal(UrlMigrationConfidences.Low, hint.Confidence);
         Assert.Null(hint.CandidateUrl);
     }
+
+    [Fact]
+    public void Detect_RssXmlContainingMigrationText_ReturnNull()
+    {
+        const string rss = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0">
+              <channel>
+                <title>お知らせ一覧</title>
+                <item>
+                  <title>新サイトへ移行しました</title>
+                  <link>https://example.com/items/1</link>
+                </item>
+              </channel>
+            </rss>
+            """;
+
+        var hint = UrlMigrationDetector.Detect(rss, "https://example.com/feed.xml");
+
+        Assert.Null(hint);
+    }
 }
