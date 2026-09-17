@@ -202,6 +202,8 @@ public sealed class ConfigAndStateTests : IDisposable
             {
                 Key = "https://example.com/public-comment",
                 Title = "第5次千葉市男女共同参画基本計画（案）",
+                FirstUrl = "https://example.com/public-comment/first",
+                CurrentUrl = "https://example.com/public-comment/current",
                 FirstSeenAt = new DateTimeOffset(2026, 3, 4, 12, 0, 0, TimeSpan.Zero)
             })
         };
@@ -211,6 +213,8 @@ public sealed class ConfigAndStateTests : IDisposable
         var loaded = await store.LoadAsync("feed-a", CancellationToken.None);
 
         Assert.Contains("\"title\": \"第5次千葉市男女共同参画基本計画（案）\"", json);
+        Assert.Contains("\"firstUrl\": \"https://example.com/public-comment/first\"", json);
+        Assert.Contains("\"currentUrl\": \"https://example.com/public-comment/current\"", json);
         Assert.DoesNotContain("\\u7B2C", json, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(loaded);
         Assert.Equal(state.FeedUrl, loaded!.FeedUrl);

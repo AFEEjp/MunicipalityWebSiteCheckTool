@@ -6,5 +6,9 @@ public record SeenEntry
 
     public string? Title { get; init; }
 
+    public string? FirstUrl { get; init; }
+
+    public string? CurrentUrl { get; init; }
+
     public DateTimeOffset FirstSeenAt { get; init; }
 }

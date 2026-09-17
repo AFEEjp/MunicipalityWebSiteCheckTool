@@ -32,4 +32,23 @@ public static class SeenList
             ? seen.SetItem(index, seen[index] with { Title = newTitle })
             : seen;
     }
+
+    public static ImmutableList<SeenEntry> UpdateUrls(
+        ImmutableList<SeenEntry> seen,
+        string key,
+        string? currentUrl)
+    {
+        var index = seen.FindIndex(entry => entry.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (index < 0 || string.IsNullOrWhiteSpace(currentUrl))
+        {
+            return seen;
+        }
+
+        var entry = seen[index];
+        return seen.SetItem(index, entry with
+        {
+            FirstUrl = string.IsNullOrWhiteSpace(entry.FirstUrl) ? currentUrl : entry.FirstUrl,
+            CurrentUrl = currentUrl
+        });
+    }
 }

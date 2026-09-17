@@ -164,6 +164,8 @@ public sealed class FeedProcessor
                         {
                             Key = item.ItemKey,
                             Title = item.Title,
+                            FirstUrl = item.Url,
+                            CurrentUrl = item.Url,
                             FirstSeenAt = DateTimeOffset.UtcNow
                         },
                         baseState.MaxSeen);
@@ -178,6 +180,8 @@ public sealed class FeedProcessor
                     });
                     continue;
                 }
+
+                seen = SeenList.UpdateUrls(seen, item.ItemKey, item.Url);
 
                 if (!string.Equals(existing.Title, item.Title, StringComparison.Ordinal))
                 {

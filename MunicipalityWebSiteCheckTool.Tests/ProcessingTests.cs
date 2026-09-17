@@ -78,6 +78,44 @@ public sealed class ProcessingTests
         Assert.Equal("New B", updated[1].Title);
     }
 
+    [Fact]
+    public void SeenList_UpdateUrls_PreserveFirstUrlAndUpdateCurrentUrl()
+    {
+        // 初回 URL は保持し、最新 URL だけを更新する。
+        var seen = ImmutableList.Create(new SeenEntry
+        {
+            Key = "a",
+            FirstUrl = "https://example.com/first",
+            CurrentUrl = "https://example.com/old",
+            FirstSeenAt = DateTimeOffset.UtcNow
+        });
+
+        var updated = SeenList.UpdateUrls(seen, "a", "https://example.com/current");
+
+        var entry = Assert.Single(updated);
+        Assert.Equal("https://example.com/first", entry.FirstUrl);
+        Assert.Equal("https://example.com/current", entry.CurrentUrl);
+    }
+
+    [Fact]
+    public void SeenList_UpdateUrls_PreserveExistingUrlsWhenCurrentUrlIsMissing()
+    {
+        // URL を取得できないクロール結果で、過去に記録した URL を消さない。
+        var seen = ImmutableList.Create(new SeenEntry
+        {
+            Key = "a",
+            FirstUrl = "https://example.com/first",
+            CurrentUrl = "https://example.com/current",
+            FirstSeenAt = DateTimeOffset.UtcNow
+        });
+
+        var updated = SeenList.UpdateUrls(seen, "a", currentUrl: null);
+
+        var entry = Assert.Single(updated);
+        Assert.Equal("https://example.com/first", entry.FirstUrl);
+        Assert.Equal("https://example.com/current", entry.CurrentUrl);
+    }
+
     private static SeenEntry CreateSeenEntry(string key, string title)
     {
         return new SeenEntry
