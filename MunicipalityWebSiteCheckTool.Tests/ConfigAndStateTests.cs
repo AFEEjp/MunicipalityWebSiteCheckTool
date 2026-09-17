@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using MunicipalityWebSiteCheckTool.Config;
 using MunicipalityWebSiteCheckTool.Configuration;
@@ -196,15 +197,25 @@ public sealed class ConfigAndStateTests : IDisposable
         {
             FeedUrl = "https://example.com/feed",
             FeedType = "rss",
-            UpdatedUtc = new DateTimeOffset(2026, 3, 4, 12, 0, 0, TimeSpan.Zero)
+            UpdatedUtc = new DateTimeOffset(2026, 3, 4, 12, 0, 0, TimeSpan.Zero),
+            Seen = ImmutableList.Create(new SeenEntry
+            {
+                Key = "https://example.com/public-comment",
+                Title = "第5次千葉市男女共同参画基本計画（案）",
+                FirstSeenAt = new DateTimeOffset(2026, 3, 4, 12, 0, 0, TimeSpan.Zero)
+            })
         };
 
         await store.SaveAsync("feed-a", state, CancellationToken.None);
+        var json = await File.ReadAllTextAsync(Path.Combine(stateDirectory, "feed-a.json"));
         var loaded = await store.LoadAsync("feed-a", CancellationToken.None);
 
+        Assert.Contains("\"title\": \"第5次千葉市男女共同参画基本計画（案）\"", json);
+        Assert.DoesNotContain("\\u7B2C", json, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(loaded);
         Assert.Equal(state.FeedUrl, loaded!.FeedUrl);
         Assert.Equal(state.FeedType, loaded.FeedType);
+        Assert.Equal(state.Seen, loaded.Seen);
     }
 
     [Fact]
@@ -220,16 +231,49 @@ public sealed class ConfigAndStateTests : IDisposable
             PageUrl = "https://example.com/page",
             UpdatedUtc = new DateTimeOffset(2026, 3, 4, 12, 0, 0, TimeSpan.Zero),
             LastCheckedAt = new DateTimeOffset(2026, 3, 4, 12, 5, 0, TimeSpan.Zero),
-            Content = "本文",
+            Content = "東京都青少年健全育成審議会",
             ContentHash = "hash"
         };
 
         await store.SavePageAsync("page-a", state, CancellationToken.None);
+        var json = await File.ReadAllTextAsync(Path.Combine(stateDirectory, "page-a.json"));
         var loaded = await store.LoadPageAsync("page-a", CancellationToken.None);
 
+        Assert.Contains("\"content\": \"東京都青少年健全育成審議会\"", json);
+        Assert.DoesNotContain("\\u6771", json, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(loaded);
-        Assert.Equal("本文", loaded!.Content);
+        Assert.Equal("東京都青少年健全育成審議会", loaded!.Content);
         Assert.Equal("hash", loaded.ContentHash);
+    }
+
+    [Fact]
+    public async Task StateStore_LoadAsync_ReadEscapedUnicodeFromExistingState()
+    {
+        // 既存の \uXXXX 形式の state も従来どおり読み込めることを確認する。
+        var stateDirectory = Path.Combine(_rootDirectory, "state");
+        var store = new StateStore();
+        store.Initialize(stateDirectory);
+
+        await File.WriteAllTextAsync(Path.Combine(stateDirectory, "feed-a.json"), """
+            {
+              "version": 1,
+              "feedUrl": "https://example.com/feed",
+              "feedType": "rss",
+              "updatedUtc": "2026-03-04T12:00:00+00:00",
+              "seen": [
+                {
+                  "key": "https://example.com/public-comment",
+                  "title": "\u7B2C5\u6B21\u5343\u8449\u5E02",
+                  "firstSeenAt": "2026-03-04T12:00:00+00:00"
+                }
+              ]
+            }
+            """);
+
+        var loaded = await store.LoadAsync("feed-a", CancellationToken.None);
+
+        Assert.NotNull(loaded);
+        Assert.Equal("第5次千葉市", Assert.Single(loaded!.Seen).Title);
     }
 
     public void Dispose()

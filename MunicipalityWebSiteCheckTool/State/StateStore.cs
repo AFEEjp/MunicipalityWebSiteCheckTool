@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 using MunicipalityWebSiteCheckTool.Domain;
 using MunicipalityWebSiteCheckTool.Serialization;
 
@@ -7,6 +9,11 @@ namespace MunicipalityWebSiteCheckTool.State;
 
 public class StateStore
 {
+    private static readonly AppJsonContext StateJsonContext = new(new JsonSerializerOptions(AppJsonContext.Default.Options)
+    {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
+    });
+
     private string? _stateDir;
 
     public void Initialize(string stateDir)
@@ -44,7 +51,7 @@ public class StateStore
 
         var path = Path.Combine(_stateDir!, $"{feedId}.json");
         var tempPath = $"{path}.tmp";
-        var json = JsonSerializer.Serialize(state, AppJsonContext.Default.FeedState);
+        var json = JsonSerializer.Serialize(state, StateJsonContext.FeedState);
 
         await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken);
         File.Move(tempPath, path, overwrite: true);
@@ -74,7 +81,7 @@ public class StateStore
 
         var path = Path.Combine(_stateDir!, $"{pageId}.json");
         var tempPath = $"{path}.tmp";
-        var json = JsonSerializer.Serialize(state, AppJsonContext.Default.PageState);
+        var json = JsonSerializer.Serialize(state, StateJsonContext.PageState);
 
         await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken);
         File.Move(tempPath, path, overwrite: true);
