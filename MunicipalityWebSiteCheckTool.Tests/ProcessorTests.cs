@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Collections.Immutable;
 using MunicipalityWebSiteCheckTool.Config;
+using MunicipalityWebSiteCheckTool.Domain;
 using MunicipalityWebSiteCheckTool.Feeds;
 using MunicipalityWebSiteCheckTool.Http;
 using MunicipalityWebSiteCheckTool.Messaging;
+using MunicipalityWebSiteCheckTool.Processing;
 using MunicipalityWebSiteCheckTool.Processors;
 using MunicipalityWebSiteCheckTool.State;
 
@@ -60,9 +63,67 @@ public sealed class ProcessorTests : IDisposable
         Assert.NotNull(result.CandidateState);
         Assert.Single(result.CandidateState!.Seen);
         Assert.Equal("意見募集 条例案", result.CandidateState.Seen[0].Title);
+        Assert.Equal("https://example.com/item1", result.CandidateState.Seen[0].FirstUrl);
+        Assert.Equal("https://example.com/item1", result.CandidateState.Seen[0].CurrentUrl);
         var detected = Assert.Single(result.NewItems);
         Assert.Equal(["意見募集", "条例"], detected.MatchedKeywords);
         Assert.Equal("https://example.com/item1", detected.Url);
+    }
+
+    [Fact]
+    public async Task FeedProcessor_ProcessAsync_UpdateExistingSeenUrlsWithoutSendingNotification()
+    {
+        // 既出項目はタイトルが変わらなくても URL 履歴を更新し、URL変更だけでは通知しない。
+        var handler = new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    <rss version="2.0">
+                      <channel>
+                        <item>
+                          <title>意見募集 条例案</title>
+                          <link>https://example.com/item1</link>
+                        </item>
+                      </channel>
+                    </rss>
+                    """, Encoding.UTF8, "application/xml")
+            });
+
+        using var httpClient = new HttpClient(handler);
+        var stateStore = CreateStateStore();
+        await stateStore.SaveAsync("feed-test", new FeedState
+        {
+            FeedUrl = "https://example.com/feed.xml",
+            FeedType = "rss",
+            UpdatedUtc = DateTimeOffset.UtcNow,
+            Seen = ImmutableList.Create(new SeenEntry
+            {
+                Key = UrlNormalizer.ToItemKey("https://example.com/item1"),
+                Title = "意見募集 条例案",
+                CurrentUrl = "https://example.com/item1?ref=old",
+                FirstSeenAt = DateTimeOffset.UtcNow
+            })
+        }, CancellationToken.None);
+
+        var processor = new FeedProcessor(
+            new FeedHttpClient(httpClient),
+            new StubBrowserFeedHttpClient(),
+            stateStore,
+            new MessageBuilder(),
+            [new RssFeedSource(), new HtmlFeedSource(), new BrowserFeedSource()]);
+
+        var result = await processor.ProcessAsync(
+            CreateFeedConfig(),
+            "https://example.invalid/error",
+            _ => "https://example.invalid/pubcom",
+            CancellationToken.None);
+
+        var entry = Assert.Single(result.CandidateState!.Seen);
+        Assert.Equal("https://example.com/item1", entry.FirstUrl);
+        Assert.Equal("https://example.com/item1", entry.CurrentUrl);
+        Assert.Equal(0, result.NewItemCount);
+        Assert.Equal(0, result.TitleChangedCount);
+        Assert.Empty(result.PendingNotifications);
     }
 
     [Fact]
